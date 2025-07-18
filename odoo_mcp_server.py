@@ -596,8 +596,8 @@ def run_mcp_server():
     except Exception as e:
         logger.error(f"MCP server error: {e}")
 
-# Mount SSE app for Claude Web MCP connection
-app.mount("/messages", sse_app)
+# Mount SSE app for Claude Web MCP connection at root
+app.mount("", sse_app)
 
 if __name__ == "__main__":
     logger.info("Starting Odoo MCP Server...")
