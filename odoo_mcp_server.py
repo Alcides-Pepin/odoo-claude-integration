@@ -12,9 +12,13 @@ import json
 import socket
 import time
 import logging
+import threading
 from typing import Any, List, Dict, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+import uvicorn
 
 # Load environment variables
 load_dotenv()
@@ -51,7 +55,14 @@ SECURITY_BLACKLIST = {
 # Timeout for XML-RPC calls (in seconds)
 TIMEOUT = 30
 
+# Railway port configuration
+PORT = int(os.getenv('PORT', 8000))
+
+# Initialize MCP server
 mcp = FastMCP("Odoo MCP Server")
+
+# Initialize FastAPI app for HTTP endpoints
+app = FastAPI(title="Odoo MCP Server", description="Production-ready MCP server for Odoo integration")
 
 def create_server_proxy(url):
     """Create ServerProxy with timeout"""
@@ -519,9 +530,74 @@ def odoo_search(model: str, domain: Optional[List[Any]] = None,
     except Exception as e:
         return f"Error searching: {str(e)}"
 
+# FastAPI HTTP endpoints
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway monitoring"""
+    try:
+        # Quick connection test
+        models, uid = get_odoo_connection()
+        return JSONResponse({
+            "status": "healthy",
+            "service": "Odoo MCP Server",
+            "odoo_connection": "ok",
+            "odoo_url": ODOO_URL,
+            "port": PORT
+        })
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse({
+            "status": "unhealthy",
+            "service": "Odoo MCP Server",
+            "error": str(e),
+            "port": PORT
+        }, status_code=503)
+
+@app.get("/")
+async def root():
+    """Root endpoint with server information"""
+    return JSONResponse({
+        "message": "Odoo MCP Server running",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "mcp": "Uses MCP protocol for Claude integration"
+        },
+        "tools": [
+            "odoo_health_check",
+            "odoo_discover_models",
+            "odoo_get_model_fields",
+            "odoo_execute",
+            "odoo_search"
+        ]
+    })
+
+@app.get("/status")
+async def server_status():
+    """Detailed server status"""
+    return JSONResponse({
+        "service": "Odoo MCP Server",
+        "port": PORT,
+        "odoo_url": ODOO_URL,
+        "odoo_database": ODOO_DB,
+        "odoo_user": ODOO_USER,
+        "timeout": TIMEOUT,
+        "environment": "production" if os.getenv('PORT') else "development"
+    })
+
+def run_mcp_server():
+    """Run MCP server in a separate thread"""
+    try:
+        logger.info("Starting MCP server thread...")
+        mcp.run()
+    except Exception as e:
+        logger.error(f"MCP server error: {e}")
+
 if __name__ == "__main__":
     logger.info("Starting Odoo MCP Server...")
     logger.info(f"Configuration:")
+    logger.info(f"  - Port: {PORT}")
     logger.info(f"  - Odoo URL: {ODOO_URL}")
     logger.info(f"  - Database: {ODOO_DB}")
     logger.info(f"  - User: {ODOO_USER}")
@@ -532,10 +608,17 @@ if __name__ == "__main__":
     logger.info(f"  - odoo_get_model_fields: Get model field details")
     logger.info(f"  - odoo_execute: Execute any model method")
     logger.info(f"  - odoo_search: Search records with filters")
-    logger.info(f"\nServer ready!")
+    logger.info(f"\nStarting hybrid server (FastAPI + MCP)...")
     
     try:
-        mcp.run()
+        # Start MCP server in background thread for Claude communication
+        mcp_thread = threading.Thread(target=run_mcp_server, daemon=True)
+        mcp_thread.start()
+        
+        # Start FastAPI server for HTTP endpoints (Railway compatibility)
+        logger.info(f"FastAPI server starting on port {PORT}")
+        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+        
     except Exception as e:
         logger.error(f"Server error: {e}")
         sys.exit(1)
