@@ -64,7 +64,7 @@ mcp = FastMCP("Odoo MCP Server")
 app = FastAPI(title="Odoo MCP Server", description="Production-ready MCP server for Odoo integration")
 
 # Get SSE app from FastMCP for Claude Web
-sse_app = mcp.sse_app
+sse_app = mcp.sse_app()
 
 def create_server_proxy(url):
     """Create ServerProxy with timeout"""
