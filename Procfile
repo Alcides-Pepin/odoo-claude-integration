@@ -1,0 +1,1 @@
+web: python odoo_mcp_server.py
