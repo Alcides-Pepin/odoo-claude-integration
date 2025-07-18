@@ -15,7 +15,6 @@ import logging
 from typing import Any, List, Dict, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -64,8 +63,8 @@ mcp = FastMCP("Odoo MCP Server")
 # Initialize FastAPI app for HTTP endpoints
 app = FastAPI(title="Odoo MCP Server", description="Production-ready MCP server for Odoo integration")
 
-# Initialize SSE transport for Claude Web
-sse_transport = SseServerTransport("/messages")
+# Get SSE app from FastMCP for Claude Web
+sse_app = mcp.sse_app
 
 def create_server_proxy(url):
     """Create ServerProxy with timeout"""
@@ -597,16 +596,8 @@ def run_mcp_server():
     except Exception as e:
         logger.error(f"MCP server error: {e}")
 
-# Add SSE routes for Claude Web
-@app.get("/messages")
-async def sse_endpoint(request: Request):
-    """SSE endpoint for Claude Web MCP connection"""
-    return await sse_transport.connect_sse(request, mcp.create_server())
-
-@app.post("/messages")
-async def sse_messages(request: Request):
-    """Handle MCP messages via SSE"""
-    return await sse_transport.handle_post_message(request, mcp.create_server())
+# Mount SSE app for Claude Web MCP connection
+app.mount("/messages", sse_app)
 
 if __name__ == "__main__":
     logger.info("Starting Odoo MCP Server...")
