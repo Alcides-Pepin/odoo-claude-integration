@@ -65,7 +65,7 @@ PORT = int(os.getenv('PORT', 8000))
 BASE_URL = f"https://{os.getenv('RAILWAY_STATIC_URL', 'claude-odoo.up.railway.app')}"
 
 # Auth0 configuration
-AUTH0_DOMAIN = os.getenv('AUTH0_DOMAIN', 'your-domain.auth0.com')
+AUTH0_DOMAIN = os.getenv('AUTH0_DOMAIN', 'dev-mmlf61a9qgvh62.us.auth0.com')
 AUTH0_CLIENT_ID = os.getenv('AUTH0_CLIENT_ID')
 AUTH0_CLIENT_SECRET = os.getenv('AUTH0_CLIENT_SECRET')
 
