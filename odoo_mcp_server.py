@@ -15,8 +15,9 @@ import logging
 from typing import Any, List, Dict, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Load environment variables
@@ -57,11 +58,23 @@ TIMEOUT = 30
 # Railway port configuration
 PORT = int(os.getenv('PORT', 8000))
 
+# OAuth configuration
+BASE_URL = f"https://{os.getenv('RAILWAY_STATIC_URL', 'claude-odoo.up.railway.app')}"
+
 # Initialize MCP server
 mcp = FastMCP("Odoo MCP Server")
 
 # Initialize FastAPI app for HTTP endpoints
 app = FastAPI(title="Odoo MCP Server", description="Production-ready MCP server for Odoo integration")
+
+# Add CORS middleware for Claude.ai
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://claude.ai"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 # Get SSE app from FastMCP for Claude Web
 sse_app = mcp.sse_app()
@@ -596,7 +609,107 @@ def run_mcp_server():
     except Exception as e:
         logger.error(f"MCP server error: {e}")
 
-# Mount SSE app for Claude Web MCP connection at root
+# OAuth 2.1 endpoints for Claude Web integration
+
+@app.get("/.well-known/oauth-authorization-server")
+async def oauth_metadata():
+    """OAuth 2.1 discovery endpoint required by MCP specification"""
+    return {
+        "issuer": BASE_URL,
+        "authorization_endpoint": f"{BASE_URL}/authorize",
+        "token_endpoint": f"{BASE_URL}/token",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
+        "scopes_supported": ["claudeai"]
+    }
+
+@app.get("/authorize")
+async def authorize(
+    response_type: str,
+    client_id: str,
+    redirect_uri: str,
+    code_challenge: str,
+    code_challenge_method: str,
+    state: str,
+    scope: str
+):
+    """OAuth 2.1 authorization endpoint with PKCE support"""
+    logger.info(f"OAuth authorization request: client_id={client_id}, scope={scope}")
+    
+    # Validate required parameters
+    if response_type != "code":
+        raise HTTPException(status_code=400, detail="Unsupported response_type")
+    
+    if code_challenge_method != "S256":
+        raise HTTPException(status_code=400, detail="Unsupported code_challenge_method")
+    
+    # Generate authorization code (dummy implementation for MCP compatibility)
+    auth_code = f"dummy_auth_code_{int(time.time())}_{client_id[-8:]}"
+    
+    # Redirect back to Claude with authorization code
+    redirect_url = f"{redirect_uri}?code={auth_code}&state={state}"
+    logger.info(f"Redirecting to: {redirect_url}")
+    
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+@app.post("/token")
+async def token_exchange(request: Request):
+    """OAuth 2.1 token exchange endpoint"""
+    try:
+        # Parse form data
+        form_data = await request.form()
+        grant_type = form_data.get("grant_type")
+        code = form_data.get("code")
+        client_id = form_data.get("client_id")
+        code_verifier = form_data.get("code_verifier")
+        
+        logger.info(f"Token exchange request: grant_type={grant_type}, client_id={client_id}")
+        
+        # Validate grant type
+        if grant_type != "authorization_code":
+            raise HTTPException(status_code=400, detail="Unsupported grant_type")
+        
+        # Generate access token (dummy implementation for MCP compatibility)
+        access_token = f"dummy_access_token_{int(time.time())}_{client_id[-8:] if client_id else 'unknown'}"
+        
+        response = {
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "claudeai"
+        }
+        
+        logger.info("Token exchange successful")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Token exchange error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid token request")
+
+# Enhanced SSE endpoint with OAuth support
+@app.api_route("/sse", methods=["GET", "POST"])
+async def sse_endpoint(request: Request):
+    """SSE endpoint with OAuth 2.1 Bearer token support for POST requests"""
+    if request.method == "POST":
+        # Check for Bearer token in Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            logger.warning("Missing or invalid Authorization header for POST /sse")
+            raise HTTPException(status_code=401, detail="Bearer token required")
+        
+        token = auth_header.split(" ", 1)[1]
+        logger.info(f"POST /sse request with token: {token[:20]}...")
+        
+        # For dummy implementation, accept any token that starts with our prefix
+        if not token.startswith("dummy_access_token_"):
+            logger.warning(f"Invalid token format: {token[:20]}...")
+            raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # Forward to the MCP SSE handler
+    return await sse_app(request.scope, request.receive, request._send)
+
+# Mount SSE app for Claude Web MCP connection at root (preserving GET functionality)
 app.mount("", sse_app)
 
 if __name__ == "__main__":
