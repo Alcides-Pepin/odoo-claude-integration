@@ -688,23 +688,38 @@ async def token_exchange(request: Request):
         raise HTTPException(status_code=400, detail="Invalid token request")
 
 # Enhanced SSE endpoint with OAuth support
-@app.api_route("/sse", methods=["GET", "POST"])
-async def sse_endpoint(request: Request):
-    """SSE endpoint with OAuth 2.1 Bearer token support for POST requests"""
-    if request.method == "POST":
-        # Check for Bearer token in Authorization header
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            logger.warning("Missing or invalid Authorization header for POST /sse")
-            raise HTTPException(status_code=401, detail="Bearer token required")
-        
-        token = auth_header.split(" ", 1)[1]
-        logger.info(f"POST /sse request with token: {token[:20]}...")
-        
-        # For dummy implementation, accept any token that starts with our prefix
-        if not token.startswith("dummy_access_token_"):
-            logger.warning(f"Invalid token format: {token[:20]}...")
-            raise HTTPException(status_code=401, detail="Invalid token")
+@app.get("/sse")
+async def sse_get(request: Request):
+    """GET SSE endpoint - requires authorization to trigger OAuth flow"""
+    auth = request.headers.get("Authorization")
+    if not auth:
+        logger.info("GET /sse without authorization - returning 401 to trigger OAuth flow")
+        return JSONResponse(
+            {"error": "unauthorized"}, 
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    # If authorized, forward to MCP SSE handler
+    logger.info("GET /sse with authorization - forwarding to SSE handler")
+    return await sse_app(request.scope, request.receive, request._send)
+
+@app.post("/sse")
+async def sse_post(request: Request):
+    """POST SSE endpoint with OAuth 2.1 Bearer token support"""
+    # Check for Bearer token in Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.warning("Missing or invalid Authorization header for POST /sse")
+        raise HTTPException(status_code=401, detail="Bearer token required")
+    
+    token = auth_header.split(" ", 1)[1]
+    logger.info(f"POST /sse request with token: {token[:20]}...")
+    
+    # For dummy implementation, accept any token that starts with our prefix
+    if not token.startswith("dummy_access_token_"):
+        logger.warning(f"Invalid token format: {token[:20]}...")
+        raise HTTPException(status_code=401, detail="Invalid token")
     
     # Forward to the MCP SSE handler
     return await sse_app(request.scope, request.receive, request._send)
