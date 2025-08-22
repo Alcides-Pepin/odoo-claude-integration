@@ -836,12 +836,15 @@ async def sse_get(request: Request):
     """GET SSE endpoint - requires MCP access token"""
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer mcp_access_token_"):
+        logger.info("GET /sse - No valid token, returning 401")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
-    # Forward to SSE app
+    
+    token = auth.split(" ", 1)[1]
+    logger.info(f"GET /sse - Valid token found ({token[:20]}...), forwarding to SSE")
     return await sse_app(request.scope, request.receive, request._send)
 
 @app.head("/sse")
@@ -849,11 +852,15 @@ async def sse_head(request: Request):
     """HEAD SSE endpoint - requires MCP access token"""
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer mcp_access_token_"):
+        logger.info("HEAD /sse - No valid token, returning 401")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
+    
+    token = auth.split(" ", 1)[1]
+    logger.info(f"HEAD /sse - Valid token found ({token[:20]}...), returning 200")
     return Response(status_code=200)
 
 @app.post("/sse") 
@@ -861,12 +868,15 @@ async def sse_post(request: Request):
     """POST SSE endpoint - requires MCP access token"""
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer mcp_access_token_"):
+        logger.info("POST /sse - No valid token, returning 401")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
-    # Forward to SSE app
+    
+    token = auth.split(" ", 1)[1]
+    logger.info(f"POST /sse - Valid token found ({token[:20]}...), forwarding to SSE")
     return await sse_app(request.scope, request.receive, request._send)
 
 # Note: Cleanup automatique supprimé pour éviter les conflits ASGI
