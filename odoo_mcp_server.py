@@ -661,7 +661,7 @@ async def oauth_callback(
     client_id: str = None,
     code_challenge: str = None
 ):
-    """Callback OAuth - envoie directement l'access_token à Claude"""
+    """Callback OAuth - standard flow avec code d'autorisation"""
     logger.info("=== OAUTH CALLBACK REQUEST ===")
     logger.info(f"code: {code}")
     logger.info(f"state: {state}")
@@ -669,15 +669,10 @@ async def oauth_callback(
     logger.info(f"client_id: {client_id}")
     logger.info(f"code_challenge: {code_challenge}")
     
-    # Générer access token directement
-    access_token = f"dummy_access_token_{int(time.time())}_{client_id[-8:] if client_id else 'callback'}"
-    
-    logger.info(f"Generated access_token: {access_token}")
-    
-    # Envoyer l'access_token au lieu du code
-    final_url = f"{original_redirect}?access_token={access_token}&token_type=Bearer&state={state}"
-    logger.info(f"Final redirect to Claude with access_token: {final_url}")
-    logger.info("=== OAUTH CALLBACK REDIRECT WITH TOKEN ===")
+    # Rediriger vers Claude avec le CODE (pas le token) pour forcer l'échange standard
+    final_url = f"{original_redirect}?code={code}&state={state}"
+    logger.info(f"Redirecting to Claude with authorization code: {final_url}")
+    logger.info("=== OAUTH CALLBACK - STANDARD FLOW ===")
     
     return RedirectResponse(url=final_url, status_code=302)
 
