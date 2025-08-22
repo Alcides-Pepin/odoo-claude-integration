@@ -873,7 +873,7 @@ async def token_exchange(request: Request):
             status_code=400
         )
 
-# Simplified SSE endpoints with MCP OAuth 2.1 support
+# SSE endpoint with MCP OAuth 2.1 support - GET only (FastMCP uses GET for SSE)
 @app.get("/sse")
 async def sse_get(request: Request):
     """GET SSE endpoint - requires MCP access token"""
@@ -905,22 +905,6 @@ async def sse_head(request: Request):
     token = auth.split(" ", 1)[1]
     logger.info(f"HEAD /sse - Valid token found ({token[:20]}...), returning 200")
     return Response(status_code=200)
-
-@app.post("/sse") 
-async def sse_post(request: Request):
-    """POST SSE endpoint - requires MCP access token"""
-    auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer mcp_access_token_"):
-        logger.info("POST /sse - No valid token, returning 401")
-        return JSONResponse(
-            {"error": "unauthorized"}, 
-            status_code=401,
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    
-    token = auth.split(" ", 1)[1]
-    logger.info(f"POST /sse - Valid token found ({token[:20]}...), forwarding to SSE")
-    return await sse_app(request.scope, request.receive, request._send)
 
 # Note: Cleanup automatique supprimé pour éviter les conflits ASGI
 # Les codes expireront naturellement lors du redémarrage du serveur
