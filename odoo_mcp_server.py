@@ -12,6 +12,9 @@ import json
 import socket
 import time
 import logging
+import hashlib
+import base64
+import secrets
 from typing import Any, List, Dict, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
@@ -60,6 +63,10 @@ PORT = int(os.getenv('PORT', 8000))
 
 # OAuth configuration
 BASE_URL = f"https://{os.getenv('RAILWAY_STATIC_URL', 'claude-odoo.up.railway.app')}"
+
+# Global storage for OAuth 2.1 implementation
+REGISTERED_CLIENTS = {}
+AUTH_CODES = {}
 
 # Initialize MCP server
 mcp = FastMCP("Odoo MCP Server")
@@ -609,7 +616,7 @@ def run_mcp_server():
     except Exception as e:
         logger.error(f"MCP server error: {e}")
 
-# OAuth 2.1 endpoints for Claude Web integration
+# OAuth 2.1 endpoints for Claude Web integration - MCP Spec 2025-03-26 compliant
 
 @app.get("/.well-known/oauth-authorization-server")
 async def oauth_metadata():
@@ -618,11 +625,49 @@ async def oauth_metadata():
         "issuer": BASE_URL,
         "authorization_endpoint": f"{BASE_URL}/authorize",
         "token_endpoint": f"{BASE_URL}/token",
+        "registration_endpoint": f"{BASE_URL}/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
-        "scopes_supported": ["claudeai"]
+        "scopes_supported": ["claudeai"],
+        "token_endpoint_auth_methods_supported": ["client_secret_post", "none"]
     }
+
+@app.post("/register")
+async def dynamic_client_registration(request: Request):
+    """Dynamic Client Registration per RFC 7591"""
+    try:
+        data = await request.json()
+        logger.info(f"Dynamic client registration: {data}")
+        
+        # Generate client credentials
+        client_id = f"client_{secrets.token_urlsafe(16)}"
+        client_secret = secrets.token_urlsafe(32)
+        
+        # Store client
+        REGISTERED_CLIENTS[client_id] = {
+            "client_secret": client_secret,
+            "redirect_uris": data.get("redirect_uris", []),
+            "client_name": data.get("client_name", "Unknown"),
+            "created_at": time.time()
+        }
+        
+        response = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "client_id_issued_at": int(time.time()),
+            "client_secret_expires_at": 0  # Never expires
+        }
+        
+        logger.info(f"Registered client: {client_id}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        return JSONResponse(
+            {"error": "invalid_request", "error_description": str(e)},
+            status_code=400
+        )
 
 @app.get("/authorize")
 async def authorize(
@@ -634,51 +679,55 @@ async def authorize(
     state: str,
     scope: str
 ):
-    """OAuth 2.1 authorization endpoint with PKCE support"""
-    logger.info(f"OAuth authorization request: client_id={client_id}, scope={scope}")
+    """OAuth 2.1 Authorization endpoint with PKCE - MCP Spec 2025-03-26 compliant"""
+    logger.info(f"Authorization request: client_id={client_id}, scope={scope}")
+    logger.info(f"PKCE challenge: {code_challenge[:20]}... method: {code_challenge_method}")
     
-    # Validate required parameters
+    # Validate parameters
     if response_type != "code":
+        logger.error(f"Unsupported response_type: {response_type}")
         raise HTTPException(status_code=400, detail="Unsupported response_type")
     
     if code_challenge_method != "S256":
+        logger.error(f"Unsupported code_challenge_method: {code_challenge_method}")
         raise HTTPException(status_code=400, detail="Unsupported code_challenge_method")
     
-    # Generate authorization code (dummy implementation for MCP compatibility)
-    auth_code = f"dummy_auth_code_{int(time.time())}_{client_id[-8:]}"
+    # Validate client exists (if registered dynamically)
+    if client_id in REGISTERED_CLIENTS:
+        client_info = REGISTERED_CLIENTS[client_id]
+        if redirect_uri not in client_info["redirect_uris"]:
+            logger.error(f"Invalid redirect_uri for registered client: {redirect_uri}")
+            raise HTTPException(status_code=400, detail="Invalid redirect_uri")
+        logger.info(f"Using registered client: {client_id}")
+    else:
+        # Allow unregistered clients for MCP compatibility (Claude may not register)
+        logger.info(f"Using unregistered client: {client_id}")
     
-    # Rediriger vers NOTRE serveur au lieu de claude.ai pour forcer le flow complet
-    callback_url = f"{BASE_URL}/callback?code={auth_code}&state={state}&original_redirect={redirect_uri}&client_id={client_id}&code_challenge={code_challenge}"
-    logger.info(f"Redirecting to our callback: {callback_url}")
+    # Generate authorization code
+    auth_code = f"auth_code_{secrets.token_urlsafe(32)}"
     
-    return RedirectResponse(url=callback_url, status_code=302)
-
-@app.get("/callback")
-async def oauth_callback(
-    code: str, 
-    state: str, 
-    original_redirect: str,
-    client_id: str = None,
-    code_challenge: str = None
-):
-    """Callback OAuth - standard flow avec code d'autorisation"""
-    logger.info("=== OAUTH CALLBACK REQUEST ===")
-    logger.info(f"code: {code}")
-    logger.info(f"state: {state}")
-    logger.info(f"original_redirect: {original_redirect}")
-    logger.info(f"client_id: {client_id}")
-    logger.info(f"code_challenge: {code_challenge}")
+    # Store code with PKCE challenge
+    AUTH_CODES[auth_code] = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code_challenge": code_challenge,
+        "code_challenge_method": code_challenge_method,
+        "scope": scope,
+        "created_at": time.time()
+    }
     
-    # Rediriger vers Claude avec le CODE (pas le token) pour forcer l'échange standard
-    final_url = f"{original_redirect}?code={code}&state={state}"
-    logger.info(f"Redirecting to Claude with authorization code: {final_url}")
-    logger.info("=== OAUTH CALLBACK - STANDARD FLOW ===")
+    logger.info(f"Generated auth code: {auth_code[:20]}...")
+    
+    # Redirect to client with authorization code
+    final_url = f"{redirect_uri}?code={auth_code}&state={state}"
+    logger.info(f"Redirecting to: {final_url}")
     
     return RedirectResponse(url=final_url, status_code=302)
 
+
 @app.post("/token")
 async def token_exchange(request: Request):
-    """OAuth 2.1 token exchange endpoint"""
+    """OAuth 2.1 Token exchange with PKCE validation - MCP Spec 2025-03-26 compliant"""
     logger.info("=== TOKEN EXCHANGE REQUEST ===")
     logger.info(f"Headers: {dict(request.headers)}")
     
@@ -686,9 +735,8 @@ async def token_exchange(request: Request):
         form_data = await request.form()
         logger.info(f"Form data: {dict(form_data)}")
         
-        # Log each parameter
         grant_type = form_data.get("grant_type")
-        code = form_data.get("code") 
+        code = form_data.get("code")
         client_id = form_data.get("client_id")
         code_verifier = form_data.get("code_verifier")
         redirect_uri = form_data.get("redirect_uri")
@@ -696,7 +744,7 @@ async def token_exchange(request: Request):
         logger.info(f"grant_type: {grant_type}")
         logger.info(f"code: {code}")
         logger.info(f"client_id: {client_id}")
-        logger.info(f"code_verifier: {code_verifier}")
+        logger.info(f"code_verifier: {code_verifier[:20] if code_verifier else None}...")
         logger.info(f"redirect_uri: {redirect_uri}")
         
         # Validate grant type
@@ -704,17 +752,71 @@ async def token_exchange(request: Request):
             logger.error(f"Invalid grant_type: {grant_type}")
             raise HTTPException(status_code=400, detail="Unsupported grant_type")
         
-        # Generate access token (dummy implementation for MCP compatibility)
-        access_token = f"dummy_access_token_{int(time.time())}_{client_id[-8:] if client_id else 'unknown'}"
+        # Validate authorization code
+        if not code or code not in AUTH_CODES:
+            logger.error(f"Invalid or missing auth code: {code}")
+            return JSONResponse(
+                {"error": "invalid_grant", "error_description": "Invalid authorization code"},
+                status_code=400
+            )
+        
+        auth_data = AUTH_CODES[code]
+        logger.info(f"Found auth data for code: {auth_data}")
+        
+        # Validate client
+        if auth_data["client_id"] != client_id:
+            logger.error(f"Client ID mismatch: {auth_data['client_id']} != {client_id}")
+            return JSONResponse(
+                {"error": "invalid_client", "error_description": "Client ID mismatch"},
+                status_code=400
+            )
+        
+        # Validate redirect URI
+        if auth_data["redirect_uri"] != redirect_uri:
+            logger.error(f"Redirect URI mismatch: {auth_data['redirect_uri']} != {redirect_uri}")
+            return JSONResponse(
+                {"error": "invalid_grant", "error_description": "Redirect URI mismatch"},
+                status_code=400
+            )
+        
+        # Validate PKCE code_verifier
+        if not code_verifier:
+            logger.error("Missing code_verifier")
+            return JSONResponse(
+                {"error": "invalid_request", "error_description": "Missing code_verifier"},
+                status_code=400
+            )
+        
+        # Verify PKCE challenge
+        expected_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode()).digest()
+        ).decode().rstrip('=')
+        
+        if expected_challenge != auth_data["code_challenge"]:
+            logger.error("PKCE validation failed")
+            logger.error(f"Expected: {expected_challenge}")
+            logger.error(f"Received: {auth_data['code_challenge']}")
+            return JSONResponse(
+                {"error": "invalid_grant", "error_description": "Invalid code_verifier"},
+                status_code=400
+            )
+        
+        logger.info("PKCE validation successful")
+        
+        # Clean up used code
+        del AUTH_CODES[code]
+        
+        # Generate MCP access token
+        access_token = f"mcp_access_token_{secrets.token_urlsafe(32)}"
         
         response = {
             "access_token": access_token,
             "token_type": "Bearer",
             "expires_in": 3600,
-            "scope": "claudeai"
+            "scope": auth_data["scope"]
         }
         
-        logger.info(f"Returning token: {response}")
+        logger.info(f"Returning MCP token: {access_token[:20]}...")
         logger.info("=== TOKEN EXCHANGE SUCCESS ===")
         return response
         
@@ -728,62 +830,97 @@ async def token_exchange(request: Request):
             status_code=400
         )
 
-# Enhanced SSE endpoint with OAuth support
+# Enhanced SSE endpoint with MCP OAuth 2.1 support
 @app.get("/sse")
 async def sse_get(request: Request):
-    """GET SSE endpoint - requires authorization to trigger OAuth flow"""
+    """GET SSE endpoint - requires MCP access token"""
     auth = request.headers.get("Authorization")
-    if not auth:
-        logger.info("GET /sse without authorization - returning 401 to trigger OAuth flow")
+    if not auth or not auth.startswith("Bearer mcp_access_token_"):
+        logger.info("GET /sse without valid MCP token - returning 401 to trigger OAuth flow")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    # If authorized, forward to MCP SSE handler
-    logger.info("GET /sse with authorization - forwarding to SSE handler")
+    token = auth.split(" ", 1)[1]
+    logger.info(f"GET /sse with valid MCP token: {token[:20]}... - forwarding to SSE handler")
     return await sse_app(request.scope, request.receive, request._send)
 
 @app.head("/sse")
 async def sse_head(request: Request):
-    """HEAD SSE endpoint - requires authorization"""
+    """HEAD SSE endpoint - requires MCP access token"""
     auth = request.headers.get("Authorization")
-    if not auth:
-        logger.info("HEAD /sse without authorization - returning 401 to trigger OAuth flow")
+    if not auth or not auth.startswith("Bearer mcp_access_token_"):
+        logger.info("HEAD /sse without valid MCP token - returning 401 to trigger OAuth flow")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    logger.info("HEAD /sse with authorization - returning 200")
+    logger.info("HEAD /sse with valid MCP token - returning 200")
     return Response(status_code=200)
 
 @app.post("/sse")
 async def sse_post(request: Request):
-    """POST SSE endpoint with OAuth 2.1 Bearer token support"""
-    # Check for Bearer token in Authorization header
+    """POST SSE endpoint - requires MCP access token"""
     auth_header = request.headers.get("Authorization")
     
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.warning("POST /sse - forcing redirect to OAuth flow")
-        # Force redirect to OAuth instead of 401
-        auth_url = f"{BASE_URL}/authorize?response_type=code&client_id=claude&redirect_uri=https://claude.ai/api/mcp/auth_callback&scope=claudeai&state=oauth_flow&code_challenge=dummy_challenge&code_challenge_method=S256"
-        return RedirectResponse(url=auth_url, status_code=302)
+    if not auth_header or not auth_header.startswith("Bearer mcp_access_token_"):
+        logger.warning("POST /sse without valid MCP token - returning 401 to trigger OAuth flow")
+        return JSONResponse(
+            {"error": "unauthorized"}, 
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"}
+        )
     
     token = auth_header.split(" ", 1)[1]
-    logger.info(f"POST /sse request with token: {token[:20]}...")
-    
-    # For dummy implementation, accept any token that starts with our prefix
-    if not token.startswith("dummy_access_token_"):
-        logger.warning(f"Invalid token format: {token[:20]}... - forcing redirect to OAuth flow")
-        auth_url = f"{BASE_URL}/authorize?response_type=code&client_id=claude&redirect_uri=https://claude.ai/api/mcp/auth_callback&scope=claudeai&state=oauth_flow&code_challenge=dummy_challenge&code_challenge_method=S256"
-        return RedirectResponse(url=auth_url, status_code=302)
+    logger.info(f"POST /sse with valid MCP token: {token[:20]}... - forwarding to SSE handler")
     
     # Forward to the MCP SSE handler
-    logger.info("POST /sse - valid token, forwarding to SSE handler")
     return await sse_app(request.scope, request.receive, request._send)
+
+# Cleanup périodique des codes expirés
+@app.on_event("startup")
+async def startup_cleanup():
+    """Initialize cleanup task for expired OAuth codes"""
+    import asyncio
+    
+    async def cleanup_expired_codes():
+        """Clean up expired authorization codes every hour"""
+        while True:
+            try:
+                await asyncio.sleep(3600)  # 1 heure
+                now = time.time()
+                
+                # Clean expired auth codes (10 minutes expiry)
+                expired_codes = [
+                    code for code, data in AUTH_CODES.items() 
+                    if now - data["created_at"] > 600
+                ]
+                
+                for code in expired_codes:
+                    del AUTH_CODES[code]
+                
+                # Clean expired registered clients (24 hours expiry for unused clients)
+                expired_clients = [
+                    client_id for client_id, data in REGISTERED_CLIENTS.items()
+                    if now - data["created_at"] > 86400
+                ]
+                
+                for client_id in expired_clients:
+                    del REGISTERED_CLIENTS[client_id]
+                
+                if expired_codes or expired_clients:
+                    logger.info(f"Cleaned up {len(expired_codes)} expired codes and {len(expired_clients)} expired clients")
+                    
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
+    
+    # Start cleanup task
+    asyncio.create_task(cleanup_expired_codes())
+    logger.info("OAuth cleanup task started")
 
 # Mount SSE app for Claude Web MCP connection at root (preserving GET functionality)
 app.mount("", sse_app)
