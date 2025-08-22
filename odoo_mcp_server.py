@@ -621,22 +621,17 @@ def run_mcp_server():
 
 @app.get("/.well-known/oauth-authorization-server")
 async def oauth_metadata():
-    """OAuth 2.1 discovery endpoint - delegates to Auth0"""
+    """OAuth 2.1 discovery endpoint - delegates to Auth0 with DCR"""
     try:
         return {
             "issuer": "https://dev-mvh0f614jqcydvb2.us.auth0.com",
             "authorization_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/authorize",
             "token_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oauth/token",
             "registration_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oidc/register",
-            "userinfo_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/userinfo",
-            "jwks_uri": "https://dev-mvh0f614jqcydvb2.us.auth0.com/.well-known/jwks.json",
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code"],
             "code_challenge_methods_supported": ["S256"],
-            "scopes_supported": ["openid", "profile", "email"],
-            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "none"],
-            "subject_types_supported": ["public"],
-            "id_token_signing_alg_values_supported": ["RS256"]
+            "scopes_supported": ["openid", "profile", "email"]
         }
     except Exception as e:
         logger.error(f"OAuth metadata error: {e}")
