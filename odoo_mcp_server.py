@@ -752,37 +752,68 @@ async def token_exchange(request: Request):
         logger.info(f"redirect_uri: {redirect_uri}")
         
         logger.info("3. Validating grant type...")
+        logger.info(f"Grant type value: '{grant_type}'")
+        logger.info(f"Comparing with 'authorization_code'")
+        
         if grant_type != "authorization_code":
-            logger.error(f"Invalid grant_type: {grant_type}")
+            logger.error(f"Invalid grant type: {grant_type}")
             raise HTTPException(status_code=400, detail="Unsupported grant_type")
         
+        logger.info("Grant type validation passed")
+        
         logger.info("4. Validating auth code...")
-        if not code or code not in AUTH_CODES:
-            logger.error(f"Invalid or missing auth code: {code}")
+        logger.info(f"Looking for code: '{code}'")
+        logger.info(f"AUTH_CODES keys: {list(AUTH_CODES.keys())}")
+        logger.info(f"Code is None: {code is None}")
+        logger.info(f"Code is empty: {code == ''}")
+        
+        if not code:
+            logger.error("Code is missing or empty")
+            return JSONResponse(
+                {"error": "invalid_grant", "error_description": "Missing authorization code"},
+                status_code=400
+            )
+        
+        if code not in AUTH_CODES:
+            logger.error(f"Code not found in AUTH_CODES: {code}")
             logger.error(f"Available codes: {list(AUTH_CODES.keys())}")
             return JSONResponse(
                 {"error": "invalid_grant", "error_description": "Invalid authorization code"},
                 status_code=400
             )
         
+        logger.info("5. Code found, getting auth data...")
         auth_data = AUTH_CODES[code]
-        logger.info("5. Auth code found, validating client...")
-        logger.info(f"Auth data: {auth_data}")
+        logger.info(f"Auth data retrieved: {auth_data}")
+        logger.info(f"Auth data type: {type(auth_data)}")
+        
+        logger.info("5a. Validating client ID...")
+        logger.info(f"Stored client_id: '{auth_data['client_id']}'")
+        logger.info(f"Received client_id: '{client_id}'")
+        logger.info(f"Client IDs match: {auth_data['client_id'] == client_id}")
         
         if auth_data["client_id"] != client_id:
-            logger.error(f"Client ID mismatch: {auth_data['client_id']} != {client_id}")
+            logger.error(f"Client ID mismatch: '{auth_data['client_id']}' != '{client_id}'")
             return JSONResponse(
                 {"error": "invalid_client", "error_description": "Client ID mismatch"},
                 status_code=400
             )
         
+        logger.info("Client ID validation passed")
+        
         logger.info("6. Validating redirect URI...")
+        logger.info(f"Stored redirect_uri: '{auth_data['redirect_uri']}'")
+        logger.info(f"Received redirect_uri: '{redirect_uri}'")
+        logger.info(f"Redirect URIs match: {auth_data['redirect_uri'] == redirect_uri}")
+        
         if auth_data["redirect_uri"] != redirect_uri:
-            logger.error(f"Redirect URI mismatch: {auth_data['redirect_uri']} != {redirect_uri}")
+            logger.error(f"Redirect URI mismatch: '{auth_data['redirect_uri']}' != '{redirect_uri}'")
             return JSONResponse(
                 {"error": "invalid_grant", "error_description": "Redirect URI mismatch"},
                 status_code=400
             )
+        
+        logger.info("Redirect URI validation passed")
         
         logger.info("7. Validating PKCE code_verifier...")
         if not code_verifier:
