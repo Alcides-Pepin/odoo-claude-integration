@@ -906,6 +906,39 @@ async def sse_head(request: Request):
     logger.info(f"HEAD /sse - Valid token found ({token[:20]}...), returning 200")
     return Response(status_code=200)
 
+@app.post("/sse")
+async def sse_post(request: Request):
+    """Handle JSON-RPC messages from MCP client"""
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer mcp_access_token_"):
+        logger.info("POST /sse - No valid token, returning 401")
+        return JSONResponse(
+            {"error": "unauthorized"}, 
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    token = auth.split(" ", 1)[1]
+    logger.info(f"POST /sse - Valid token found ({token[:20]}...), handling JSON-RPC")
+    
+    # Get JSON-RPC message
+    try:
+        message = await request.json()
+        logger.info(f"Received MCP JSON-RPC message: {message}")
+        
+        # Forward to FastMCP handler through SSE app
+        # FastMCP should handle the JSON-RPC protocol internally
+        return await sse_app(request.scope, request.receive, request._send)
+        
+    except Exception as e:
+        logger.error(f"Error handling MCP JSON-RPC request: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            {"jsonrpc": "2.0", "error": {"code": -32603, "message": "Internal error"}, "id": None}, 
+            status_code=500
+        )
+
 # Note: Cleanup automatique supprimé pour éviter les conflits ASGI
 # Les codes expireront naturellement lors du redémarrage du serveur
 
