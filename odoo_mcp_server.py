@@ -647,11 +647,39 @@ async def authorize(
     # Generate authorization code (dummy implementation for MCP compatibility)
     auth_code = f"dummy_auth_code_{int(time.time())}_{client_id[-8:]}"
     
-    # Redirect back to Claude with authorization code
-    redirect_url = f"{redirect_uri}?code={auth_code}&state={state}"
-    logger.info(f"Redirecting to: {redirect_url}")
+    # Rediriger vers NOTRE serveur au lieu de claude.ai pour forcer le flow complet
+    callback_url = f"{BASE_URL}/callback?code={auth_code}&state={state}&original_redirect={redirect_uri}&client_id={client_id}&code_challenge={code_challenge}"
+    logger.info(f"Redirecting to our callback: {callback_url}")
     
-    return RedirectResponse(url=redirect_url, status_code=302)
+    return RedirectResponse(url=callback_url, status_code=302)
+
+@app.get("/callback")
+async def oauth_callback(
+    code: str, 
+    state: str, 
+    original_redirect: str,
+    client_id: str = None,
+    code_challenge: str = None
+):
+    """Callback OAuth - échange code contre token puis redirige vers Claude"""
+    logger.info("=== OAUTH CALLBACK REQUEST ===")
+    logger.info(f"code: {code}")
+    logger.info(f"state: {state}")
+    logger.info(f"original_redirect: {original_redirect}")
+    logger.info(f"client_id: {client_id}")
+    logger.info(f"code_challenge: {code_challenge}")
+    
+    # Simuler l'appel /token en interne pour générer access token
+    access_token = f"dummy_access_token_{int(time.time())}_{client_id[-8:] if client_id else 'callback'}"
+    
+    logger.info(f"Generated access_token: {access_token}")
+    
+    # Rediriger vers Claude avec le code d'autorisation (Claude fera ensuite l'appel /token)
+    final_url = f"{original_redirect}?code={code}&state={state}"
+    logger.info(f"Final redirect to Claude: {final_url}")
+    logger.info("=== OAUTH CALLBACK REDIRECT ===")
+    
+    return RedirectResponse(url=final_url, status_code=302)
 
 @app.post("/token")
 async def token_exchange(request: Request):
