@@ -65,7 +65,7 @@ PORT = int(os.getenv('PORT', 8000))
 BASE_URL = f"https://{os.getenv('RAILWAY_STATIC_URL', 'claude-odoo.up.railway.app')}"
 
 # Auth0 configuration
-AUTH0_DOMAIN = os.getenv('AUTH0_DOMAIN', 'dev-mmlf61a9qgvh62.us.auth0.com')
+AUTH0_DOMAIN = os.getenv('AUTH0_DOMAIN', 'dev-mvh0f614jqcydvb2.us.auth0.com')
 AUTH0_CLIENT_ID = os.getenv('AUTH0_CLIENT_ID')
 AUTH0_CLIENT_SECRET = os.getenv('AUTH0_CLIENT_SECRET')
 
@@ -623,19 +623,14 @@ def run_mcp_server():
 async def oauth_metadata():
     """OAuth 2.1 discovery endpoint - delegates to Auth0"""
     return {
-        "issuer": f"https://{AUTH0_DOMAIN}",
-        "authorization_endpoint": f"https://{AUTH0_DOMAIN}/authorize",
-        "token_endpoint": f"https://{AUTH0_DOMAIN}/oauth/token",
-        "registration_endpoint": f"https://{AUTH0_DOMAIN}/oidc/register",
-        "userinfo_endpoint": f"https://{AUTH0_DOMAIN}/userinfo",
-        "jwks_uri": f"https://{AUTH0_DOMAIN}/.well-known/jwks.json",
+        "issuer": "https://dev-mvh0f614jqcydvb2.us.auth0.com",
+        "authorization_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/authorize",
+        "token_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oauth/token",
+        "registration_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oidc/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
-        "scopes_supported": ["openid", "profile", "email"],
-        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "none"],
-        "subject_types_supported": ["public"],
-        "id_token_signing_alg_values_supported": ["RS256"]
+        "scopes_supported": ["openid", "profile", "email"]
     }
 
 # OAuth endpoints removed - now delegated to Auth0
