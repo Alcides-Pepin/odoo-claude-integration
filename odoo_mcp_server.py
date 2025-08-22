@@ -830,21 +830,18 @@ async def token_exchange(request: Request):
             status_code=400
         )
 
-# Enhanced SSE endpoint with MCP OAuth 2.1 support
+# Simplified SSE endpoints with MCP OAuth 2.1 support
 @app.get("/sse")
 async def sse_get(request: Request):
     """GET SSE endpoint - requires MCP access token"""
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer mcp_access_token_"):
-        logger.info("GET /sse without valid MCP token - returning 401 to trigger OAuth flow")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
-    token = auth.split(" ", 1)[1]
-    logger.info(f"GET /sse with valid MCP token: {token[:20]}... - forwarding to SSE handler")
+    # Forward to SSE app
     return await sse_app(request.scope, request.receive, request._send)
 
 @app.head("/sse")
@@ -852,78 +849,31 @@ async def sse_head(request: Request):
     """HEAD SSE endpoint - requires MCP access token"""
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer mcp_access_token_"):
-        logger.info("HEAD /sse without valid MCP token - returning 401 to trigger OAuth flow")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
-    logger.info("HEAD /sse with valid MCP token - returning 200")
     return Response(status_code=200)
 
-@app.post("/sse")
+@app.post("/sse") 
 async def sse_post(request: Request):
     """POST SSE endpoint - requires MCP access token"""
-    auth_header = request.headers.get("Authorization")
-    
-    if not auth_header or not auth_header.startswith("Bearer mcp_access_token_"):
-        logger.warning("POST /sse without valid MCP token - returning 401 to trigger OAuth flow")
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer mcp_access_token_"):
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
-    token = auth_header.split(" ", 1)[1]
-    logger.info(f"POST /sse with valid MCP token: {token[:20]}... - forwarding to SSE handler")
-    
-    # Forward to the MCP SSE handler
+    # Forward to SSE app
     return await sse_app(request.scope, request.receive, request._send)
 
-# Cleanup périodique des codes expirés
-@app.on_event("startup")
-async def startup_cleanup():
-    """Initialize cleanup task for expired OAuth codes"""
-    import asyncio
-    
-    async def cleanup_expired_codes():
-        """Clean up expired authorization codes every hour"""
-        while True:
-            try:
-                await asyncio.sleep(3600)  # 1 heure
-                now = time.time()
-                
-                # Clean expired auth codes (10 minutes expiry)
-                expired_codes = [
-                    code for code, data in AUTH_CODES.items() 
-                    if now - data["created_at"] > 600
-                ]
-                
-                for code in expired_codes:
-                    del AUTH_CODES[code]
-                
-                # Clean expired registered clients (24 hours expiry for unused clients)
-                expired_clients = [
-                    client_id for client_id, data in REGISTERED_CLIENTS.items()
-                    if now - data["created_at"] > 86400
-                ]
-                
-                for client_id in expired_clients:
-                    del REGISTERED_CLIENTS[client_id]
-                
-                if expired_codes or expired_clients:
-                    logger.info(f"Cleaned up {len(expired_codes)} expired codes and {len(expired_clients)} expired clients")
-                    
-            except Exception as e:
-                logger.error(f"Cleanup error: {e}")
-    
-    # Start cleanup task
-    asyncio.create_task(cleanup_expired_codes())
-    logger.info("OAuth cleanup task started")
+# Note: Cleanup automatique supprimé pour éviter les conflits ASGI
+# Les codes expireront naturellement lors du redémarrage du serveur
 
-# Mount SSE app for Claude Web MCP connection at root (preserving GET functionality)
-app.mount("", sse_app)
+# Mount SSE app commented out to avoid conflicts with explicit endpoints
+# app.mount("", sse_app)
 
 if __name__ == "__main__":
     logger.info("Starting Odoo MCP Server...")
