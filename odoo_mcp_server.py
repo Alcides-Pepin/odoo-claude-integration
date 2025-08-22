@@ -703,13 +703,18 @@ async def authorize(
         # Allow unregistered clients for MCP compatibility (Claude may not register)
         logger.info(f"Using unregistered client: {client_id}")
     
+    # Nettoyer redirect_uri avant stockage (enlever ; à la fin si présent)
+    if redirect_uri and redirect_uri.endswith(';'):
+        logger.info(f"Cleaning redirect_uri in /authorize: removing trailing ';' from {redirect_uri}")
+        redirect_uri = redirect_uri[:-1]
+    
     # Generate authorization code
     auth_code = f"auth_code_{secrets.token_urlsafe(32)}"
     
-    # Store code with PKCE challenge
+    # Store code with PKCE challenge and cleaned redirect_uri
     AUTH_CODES[auth_code] = {
         "client_id": client_id,
-        "redirect_uri": redirect_uri,
+        "redirect_uri": redirect_uri,  # Maintenant nettoyé
         "code_challenge": code_challenge,
         "code_challenge_method": code_challenge_method,
         "scope": scope,
