@@ -742,6 +742,11 @@ async def token_exchange(request: Request):
         code_verifier = form_data.get("code_verifier")
         redirect_uri = form_data.get("redirect_uri")
         
+        # Nettoyer redirect_uri (enlever ; à la fin si présent)
+        if redirect_uri and redirect_uri.endswith(';'):
+            logger.info(f"Cleaning redirect_uri: removing trailing ';' from {redirect_uri}")
+            redirect_uri = redirect_uri[:-1]
+        
         logger.info(f"Parameters extracted: grant_type={grant_type}, code={code}, client_id={client_id}")
         logger.info(f"code_verifier: {code_verifier[:20] if code_verifier else None}...")
         logger.info(f"redirect_uri: {redirect_uri}")
