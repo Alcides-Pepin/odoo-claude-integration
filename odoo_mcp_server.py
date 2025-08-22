@@ -15,7 +15,7 @@ import logging
 from typing import Any, List, Dict, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -703,6 +703,21 @@ async def sse_get(request: Request):
     # If authorized, forward to MCP SSE handler
     logger.info("GET /sse with authorization - forwarding to SSE handler")
     return await sse_app(request.scope, request.receive, request._send)
+
+@app.head("/sse")
+async def sse_head(request: Request):
+    """HEAD SSE endpoint - requires authorization"""
+    auth = request.headers.get("Authorization")
+    if not auth:
+        logger.info("HEAD /sse without authorization - returning 401 to trigger OAuth flow")
+        return JSONResponse(
+            {"error": "unauthorized"}, 
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    logger.info("HEAD /sse with authorization - returning 200")
+    return Response(status_code=200)
 
 @app.post("/sse")
 async def sse_post(request: Request):
