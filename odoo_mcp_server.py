@@ -729,41 +729,41 @@ async def authorize(
 async def token_exchange(request: Request):
     """OAuth 2.1 Token exchange with PKCE validation - MCP Spec 2025-03-26 compliant"""
     logger.info("=== TOKEN EXCHANGE REQUEST ===")
-    logger.info(f"Headers: {dict(request.headers)}")
     
     try:
+        logger.info("1. Parsing form data...")
         form_data = await request.form()
-        logger.info(f"Form data: {dict(form_data)}")
+        logger.info(f"Form data parsed successfully: {dict(form_data)}")
         
+        logger.info("2. Extracting parameters...")
         grant_type = form_data.get("grant_type")
         code = form_data.get("code")
         client_id = form_data.get("client_id")
         code_verifier = form_data.get("code_verifier")
         redirect_uri = form_data.get("redirect_uri")
         
-        logger.info(f"grant_type: {grant_type}")
-        logger.info(f"code: {code}")
-        logger.info(f"client_id: {client_id}")
+        logger.info(f"Parameters extracted: grant_type={grant_type}, code={code}, client_id={client_id}")
         logger.info(f"code_verifier: {code_verifier[:20] if code_verifier else None}...")
         logger.info(f"redirect_uri: {redirect_uri}")
         
-        # Validate grant type
+        logger.info("3. Validating grant type...")
         if grant_type != "authorization_code":
             logger.error(f"Invalid grant_type: {grant_type}")
             raise HTTPException(status_code=400, detail="Unsupported grant_type")
         
-        # Validate authorization code
+        logger.info("4. Validating auth code...")
         if not code or code not in AUTH_CODES:
             logger.error(f"Invalid or missing auth code: {code}")
+            logger.error(f"Available codes: {list(AUTH_CODES.keys())}")
             return JSONResponse(
                 {"error": "invalid_grant", "error_description": "Invalid authorization code"},
                 status_code=400
             )
         
         auth_data = AUTH_CODES[code]
-        logger.info(f"Found auth data for code: {auth_data}")
+        logger.info("5. Auth code found, validating client...")
+        logger.info(f"Auth data: {auth_data}")
         
-        # Validate client
         if auth_data["client_id"] != client_id:
             logger.error(f"Client ID mismatch: {auth_data['client_id']} != {client_id}")
             return JSONResponse(
@@ -771,7 +771,7 @@ async def token_exchange(request: Request):
                 status_code=400
             )
         
-        # Validate redirect URI
+        logger.info("6. Validating redirect URI...")
         if auth_data["redirect_uri"] != redirect_uri:
             logger.error(f"Redirect URI mismatch: {auth_data['redirect_uri']} != {redirect_uri}")
             return JSONResponse(
@@ -779,7 +779,7 @@ async def token_exchange(request: Request):
                 status_code=400
             )
         
-        # Validate PKCE code_verifier
+        logger.info("7. Validating PKCE code_verifier...")
         if not code_verifier:
             logger.error("Missing code_verifier")
             return JSONResponse(
@@ -787,11 +787,12 @@ async def token_exchange(request: Request):
                 status_code=400
             )
         
-        # Verify PKCE challenge
+        logger.info("8. Computing PKCE challenge...")
         expected_challenge = base64.urlsafe_b64encode(
             hashlib.sha256(code_verifier.encode()).digest()
         ).decode().rstrip('=')
         
+        logger.info("9. Verifying PKCE challenge...")
         if expected_challenge != auth_data["code_challenge"]:
             logger.error("PKCE validation failed")
             logger.error(f"Expected: {expected_challenge}")
@@ -801,14 +802,13 @@ async def token_exchange(request: Request):
                 status_code=400
             )
         
-        logger.info("PKCE validation successful")
-        
-        # Clean up used code
-        del AUTH_CODES[code]
-        
-        # Generate MCP access token
+        logger.info("10. PKCE validation successful, generating token...")
         access_token = f"mcp_access_token_{secrets.token_urlsafe(32)}"
         
+        logger.info("11. Cleaning up auth code...")
+        del AUTH_CODES[code]
+        
+        logger.info("12. Building response...")
         response = {
             "access_token": access_token,
             "token_type": "Bearer",
@@ -816,15 +816,17 @@ async def token_exchange(request: Request):
             "scope": auth_data["scope"]
         }
         
-        logger.info(f"Returning MCP token: {access_token[:20]}...")
-        logger.info("=== TOKEN EXCHANGE SUCCESS ===")
+        logger.info(f"=== TOKEN SUCCESS: {access_token[:20]}... ===")
         return response
         
-    except HTTPException:
+    except HTTPException as he:
+        logger.error(f"=== TOKEN HTTP ERROR: {he.detail} ===")
         raise
     except Exception as e:
-        logger.error(f"Token exchange error: {e}")
-        logger.error("=== TOKEN EXCHANGE FAILED ===")
+        logger.error(f"=== TOKEN ERROR: {e} ===")
+        logger.error(f"Error type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(
             {"error": "invalid_request", "error_description": str(e)},
             status_code=400
