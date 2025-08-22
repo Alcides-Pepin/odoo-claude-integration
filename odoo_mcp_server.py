@@ -724,19 +724,28 @@ async def sse_post(request: Request):
     """POST SSE endpoint with OAuth 2.1 Bearer token support"""
     # Check for Bearer token in Authorization header
     auth_header = request.headers.get("Authorization")
+    
     if not auth_header or not auth_header.startswith("Bearer "):
-        logger.warning("Missing or invalid Authorization header for POST /sse")
-        raise HTTPException(status_code=401, detail="Bearer token required")
+        logger.warning("POST /sse - redirecting to OAuth flow")
+        # Instead of 401, redirect to OAuth authorize endpoint
+        return JSONResponse({
+            "error": "oauth_required",
+            "authorization_url": f"{BASE_URL}/authorize?response_type=code&client_id=claude&redirect_uri=https://claude.ai/api/mcp/auth_callback&scope=claudeai&state=oauth_flow&code_challenge=dummy_challenge&code_challenge_method=S256"
+        }, status_code=401)
     
     token = auth_header.split(" ", 1)[1]
     logger.info(f"POST /sse request with token: {token[:20]}...")
     
     # For dummy implementation, accept any token that starts with our prefix
     if not token.startswith("dummy_access_token_"):
-        logger.warning(f"Invalid token format: {token[:20]}...")
-        raise HTTPException(status_code=401, detail="Invalid token")
+        logger.warning(f"Invalid token format: {token[:20]}... - redirecting to OAuth flow")
+        return JSONResponse({
+            "error": "oauth_required",
+            "authorization_url": f"{BASE_URL}/authorize?response_type=code&client_id=claude&redirect_uri=https://claude.ai/api/mcp/auth_callback&scope=claudeai&state=oauth_flow&code_challenge=dummy_challenge&code_challenge_method=S256"
+        }, status_code=401)
     
     # Forward to the MCP SSE handler
+    logger.info("POST /sse - valid token, forwarding to SSE handler")
     return await sse_app(request.scope, request.receive, request._send)
 
 # Mount SSE app for Claude Web MCP connection at root (preserving GET functionality)
