@@ -622,71 +622,93 @@ def run_mcp_server():
 @app.get("/.well-known/oauth-authorization-server")
 async def oauth_metadata():
     """OAuth 2.1 discovery endpoint - delegates to Auth0"""
-    return {
-        "issuer": "https://dev-mvh0f614jqcydvb2.us.auth0.com",
-        "authorization_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/authorize",
-        "token_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oauth/token",
-        "registration_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oidc/register",
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
-        "code_challenge_methods_supported": ["S256"],
-        "scopes_supported": ["openid", "profile", "email"]
-    }
+    try:
+        return {
+            "issuer": "https://dev-mvh0f614jqcydvb2.us.auth0.com",
+            "authorization_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/authorize",
+            "token_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oauth/token",
+            "registration_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/oidc/register",
+            "userinfo_endpoint": "https://dev-mvh0f614jqcydvb2.us.auth0.com/userinfo",
+            "jwks_uri": "https://dev-mvh0f614jqcydvb2.us.auth0.com/.well-known/jwks.json",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code"],
+            "code_challenge_methods_supported": ["S256"],
+            "scopes_supported": ["openid", "profile", "email"],
+            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "none"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"]
+        }
+    except Exception as e:
+        logger.error(f"OAuth metadata error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # OAuth endpoints removed - now delegated to Auth0
 # Claude will use Auth0 directly for authorization and token exchange
 
-# SSE endpoints with Auth0 token validation
+# SSE endpoints with Auth0 token validation and ASGI error protection
 @app.get("/sse")
 async def sse_get(request: Request):
     """GET SSE endpoint - requires Auth0 access token"""
-    auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer "):
-        logger.info("GET /sse - No Bearer token, returning 401")
-        return JSONResponse(
-            {"error": "unauthorized"}, 
-            status_code=401,
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    
-    token = auth.split(" ", 1)[1]
-    logger.info(f"GET /sse - Auth0 token found ({token[:20]}...), forwarding to SSE")
-    
-    # TODO: Validate Auth0 token here (for now accept any Bearer token)
-    # In production: verify JWT signature against Auth0 JWKS
-    
-    return await sse_app(request.scope, request.receive, request._send)
+    try:
+        auth = request.headers.get("Authorization")
+        if not auth or not auth.startswith("Bearer "):
+            logger.info("GET /sse - No Bearer token, returning 401")
+            return JSONResponse(
+                {"error": "unauthorized"}, 
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        token = auth.split(" ", 1)[1]
+        logger.info(f"GET /sse - Auth0 token found ({token[:20]}...), forwarding to SSE")
+        
+        # TODO: Validate Auth0 JWT token here (for now accept any Bearer token)
+        # In production: verify JWT signature against Auth0 JWKS
+        
+        return await sse_app(request.scope, request.receive, request._send)
+    except Exception as e:
+        logger.error(f"GET /sse error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.head("/sse")
 async def sse_head(request: Request):
     """HEAD SSE endpoint - requires Auth0 access token"""
-    auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer "):
-        logger.info("HEAD /sse - No Bearer token, returning 401")
-        return JSONResponse(
-            {"error": "unauthorized"}, 
-            status_code=401,
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    
-    token = auth.split(" ", 1)[1]
-    logger.info(f"HEAD /sse - Auth0 token found ({token[:20]}...), returning 200")
-    return Response(status_code=200)
+    try:
+        auth = request.headers.get("Authorization")
+        if not auth or not auth.startswith("Bearer "):
+            logger.info("HEAD /sse - No Bearer token, returning 401")
+            return JSONResponse(
+                {"error": "unauthorized"}, 
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        token = auth.split(" ", 1)[1]
+        logger.info(f"HEAD /sse - Auth0 token found ({token[:20]}...), returning 200")
+        return Response(status_code=200)
+    except Exception as e:
+        logger.error(f"HEAD /sse error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/sse")
 async def sse_post(request: Request):
     """POST SSE endpoint - requires Auth0 access token"""
-    auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer "):
-        logger.info("POST /sse - No Bearer token, returning 401")
-        return JSONResponse(
-            {"error": "unauthorized"}, 
-            status_code=401,
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    
-    logger.info("POST /sse - Auth0 token found, forwarding to SSE app")
-    return await sse_app(request.scope, request.receive, request._send)
+    try:
+        auth = request.headers.get("Authorization")
+        if not auth or not auth.startswith("Bearer "):
+            logger.info("POST /sse - No Bearer token, returning 401")
+            return JSONResponse(
+                {"error": "unauthorized"}, 
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        token = auth.split(" ", 1)[1]
+        logger.info(f"POST /sse - Auth0 token found ({token[:20]}...), forwarding to SSE app")
+        return await sse_app(request.scope, request.receive, request._send)
+    except Exception as e:
+        logger.error(f"POST /sse error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # Note: Cleanup automatique supprimé pour éviter les conflits ASGI
 # Les codes expireront naturellement lors du redémarrage du serveur
