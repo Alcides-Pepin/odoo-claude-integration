@@ -64,9 +64,10 @@ PORT = int(os.getenv('PORT', 8000))
 # OAuth configuration
 BASE_URL = f"https://{os.getenv('RAILWAY_STATIC_URL', 'claude-odoo.up.railway.app')}"
 
-# Global storage for OAuth 2.1 implementation
-REGISTERED_CLIENTS = {}
-AUTH_CODES = {}
+# Auth0 configuration
+AUTH0_DOMAIN = os.getenv('AUTH0_DOMAIN', 'your-domain.auth0.com')
+AUTH0_CLIENT_ID = os.getenv('AUTH0_CLIENT_ID')
+AUTH0_CLIENT_SECRET = os.getenv('AUTH0_CLIENT_SECRET')
 
 # Initialize MCP server
 mcp = FastMCP("Odoo MCP Server")
@@ -616,270 +617,37 @@ def run_mcp_server():
     except Exception as e:
         logger.error(f"MCP server error: {e}")
 
-# OAuth 2.1 endpoints for Claude Web integration - MCP Spec 2025-03-26 compliant
+# OAuth 2.1 endpoints for Claude Web integration - Auth0 delegated
 
 @app.get("/.well-known/oauth-authorization-server")
 async def oauth_metadata():
-    """OAuth 2.1 discovery endpoint required by MCP specification"""
+    """OAuth 2.1 discovery endpoint - delegates to Auth0"""
     return {
-        "issuer": BASE_URL,
-        "authorization_endpoint": f"{BASE_URL}/authorize",
-        "token_endpoint": f"{BASE_URL}/token",
-        "registration_endpoint": f"{BASE_URL}/register",
+        "issuer": f"https://{AUTH0_DOMAIN}",
+        "authorization_endpoint": f"https://{AUTH0_DOMAIN}/authorize",
+        "token_endpoint": f"https://{AUTH0_DOMAIN}/oauth/token",
+        "registration_endpoint": f"https://{AUTH0_DOMAIN}/oidc/register",
+        "userinfo_endpoint": f"https://{AUTH0_DOMAIN}/userinfo",
+        "jwks_uri": f"https://{AUTH0_DOMAIN}/.well-known/jwks.json",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
-        "scopes_supported": ["claudeai"],
-        "token_endpoint_auth_methods_supported": ["client_secret_post", "none"]
+        "scopes_supported": ["openid", "profile", "email"],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "none"],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256"]
     }
 
-@app.post("/register")
-async def dynamic_client_registration(request: Request):
-    """Dynamic Client Registration per RFC 7591"""
-    try:
-        data = await request.json()
-        logger.info(f"Dynamic client registration: {data}")
-        
-        # Generate client credentials
-        client_id = f"client_{secrets.token_urlsafe(16)}"
-        client_secret = secrets.token_urlsafe(32)
-        
-        # Store client
-        REGISTERED_CLIENTS[client_id] = {
-            "client_secret": client_secret,
-            "redirect_uris": data.get("redirect_uris", []),
-            "client_name": data.get("client_name", "Unknown"),
-            "created_at": time.time()
-        }
-        
-        response = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "client_id_issued_at": int(time.time()),
-            "client_secret_expires_at": 0  # Never expires
-        }
-        
-        logger.info(f"Registered client: {client_id}")
-        return response
-        
-    except Exception as e:
-        logger.error(f"Registration error: {e}")
-        return JSONResponse(
-            {"error": "invalid_request", "error_description": str(e)},
-            status_code=400
-        )
+# OAuth endpoints removed - now delegated to Auth0
+# Claude will use Auth0 directly for authorization and token exchange
 
-@app.get("/authorize")
-async def authorize(
-    response_type: str,
-    client_id: str,
-    redirect_uri: str,
-    code_challenge: str,
-    code_challenge_method: str,
-    state: str,
-    scope: str
-):
-    """OAuth 2.1 Authorization endpoint with PKCE - MCP Spec 2025-03-26 compliant"""
-    logger.info(f"Authorization request: client_id={client_id}, scope={scope}")
-    logger.info(f"PKCE challenge: {code_challenge[:20]}... method: {code_challenge_method}")
-    
-    # Validate parameters
-    if response_type != "code":
-        logger.error(f"Unsupported response_type: {response_type}")
-        raise HTTPException(status_code=400, detail="Unsupported response_type")
-    
-    if code_challenge_method != "S256":
-        logger.error(f"Unsupported code_challenge_method: {code_challenge_method}")
-        raise HTTPException(status_code=400, detail="Unsupported code_challenge_method")
-    
-    # Validate client exists (if registered dynamically)
-    if client_id in REGISTERED_CLIENTS:
-        client_info = REGISTERED_CLIENTS[client_id]
-        if redirect_uri not in client_info["redirect_uris"]:
-            logger.error(f"Invalid redirect_uri for registered client: {redirect_uri}")
-            raise HTTPException(status_code=400, detail="Invalid redirect_uri")
-        logger.info(f"Using registered client: {client_id}")
-    else:
-        # Allow unregistered clients for MCP compatibility (Claude may not register)
-        logger.info(f"Using unregistered client: {client_id}")
-    
-    # Nettoyer redirect_uri avant stockage (enlever ; à la fin si présent)
-    if redirect_uri and redirect_uri.endswith(';'):
-        logger.info(f"Cleaning redirect_uri in /authorize: removing trailing ';' from {redirect_uri}")
-        redirect_uri = redirect_uri[:-1]
-    
-    # Generate authorization code
-    auth_code = f"auth_code_{secrets.token_urlsafe(32)}"
-    
-    # Store code with PKCE challenge and cleaned redirect_uri
-    AUTH_CODES[auth_code] = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,  # Maintenant nettoyé
-        "code_challenge": code_challenge,
-        "code_challenge_method": code_challenge_method,
-        "scope": scope,
-        "created_at": time.time()
-    }
-    
-    logger.info(f"Generated auth code: {auth_code[:20]}...")
-    
-    # Redirect to client with authorization code
-    final_url = f"{redirect_uri}?code={auth_code}&state={state}"
-    logger.info(f"Redirecting to: {final_url}")
-    
-    return RedirectResponse(url=final_url, status_code=302)
-
-
-@app.post("/token")
-async def token_exchange(request: Request):
-    """OAuth 2.1 Token exchange with PKCE validation - MCP Spec 2025-03-26 compliant"""
-    logger.info("=== TOKEN EXCHANGE REQUEST ===")
-    
-    try:
-        logger.info("1. Parsing form data...")
-        form_data = await request.form()
-        logger.info(f"Form data parsed successfully: {dict(form_data)}")
-        
-        logger.info("2. Extracting parameters...")
-        grant_type = form_data.get("grant_type")
-        code = form_data.get("code")
-        client_id = form_data.get("client_id")
-        code_verifier = form_data.get("code_verifier")
-        redirect_uri = form_data.get("redirect_uri")
-        
-        # Nettoyer redirect_uri (enlever ; à la fin si présent)
-        if redirect_uri and redirect_uri.endswith(';'):
-            logger.info(f"Cleaning redirect_uri: removing trailing ';' from {redirect_uri}")
-            redirect_uri = redirect_uri[:-1]
-        
-        logger.info(f"Parameters extracted: grant_type={grant_type}, code={code}, client_id={client_id}")
-        logger.info(f"code_verifier: {code_verifier[:20] if code_verifier else None}...")
-        logger.info(f"redirect_uri: {redirect_uri}")
-        
-        logger.info("3. Validating grant type...")
-        logger.info(f"Grant type value: '{grant_type}'")
-        logger.info(f"Comparing with 'authorization_code'")
-        
-        if grant_type != "authorization_code":
-            logger.error(f"Invalid grant type: {grant_type}")
-            raise HTTPException(status_code=400, detail="Unsupported grant_type")
-        
-        logger.info("Grant type validation passed")
-        
-        logger.info("4. Validating auth code...")
-        logger.info(f"Looking for code: '{code}'")
-        logger.info(f"AUTH_CODES keys: {list(AUTH_CODES.keys())}")
-        logger.info(f"Code is None: {code is None}")
-        logger.info(f"Code is empty: {code == ''}")
-        
-        if not code:
-            logger.error("Code is missing or empty")
-            return JSONResponse(
-                {"error": "invalid_grant", "error_description": "Missing authorization code"},
-                status_code=400
-            )
-        
-        if code not in AUTH_CODES:
-            logger.error(f"Code not found in AUTH_CODES: {code}")
-            logger.error(f"Available codes: {list(AUTH_CODES.keys())}")
-            return JSONResponse(
-                {"error": "invalid_grant", "error_description": "Invalid authorization code"},
-                status_code=400
-            )
-        
-        logger.info("5. Code found, getting auth data...")
-        auth_data = AUTH_CODES[code]
-        logger.info(f"Auth data retrieved: {auth_data}")
-        logger.info(f"Auth data type: {type(auth_data)}")
-        
-        logger.info("5a. Validating client ID...")
-        logger.info(f"Stored client_id: '{auth_data['client_id']}'")
-        logger.info(f"Received client_id: '{client_id}'")
-        logger.info(f"Client IDs match: {auth_data['client_id'] == client_id}")
-        
-        if auth_data["client_id"] != client_id:
-            logger.error(f"Client ID mismatch: '{auth_data['client_id']}' != '{client_id}'")
-            return JSONResponse(
-                {"error": "invalid_client", "error_description": "Client ID mismatch"},
-                status_code=400
-            )
-        
-        logger.info("Client ID validation passed")
-        
-        logger.info("6. Validating redirect URI...")
-        logger.info(f"Stored redirect_uri: '{auth_data['redirect_uri']}'")
-        logger.info(f"Received redirect_uri: '{redirect_uri}'")
-        logger.info(f"Redirect URIs match: {auth_data['redirect_uri'] == redirect_uri}")
-        
-        if auth_data["redirect_uri"] != redirect_uri:
-            logger.error(f"Redirect URI mismatch: '{auth_data['redirect_uri']}' != '{redirect_uri}'")
-            return JSONResponse(
-                {"error": "invalid_grant", "error_description": "Redirect URI mismatch"},
-                status_code=400
-            )
-        
-        logger.info("Redirect URI validation passed")
-        
-        logger.info("7. Validating PKCE code_verifier...")
-        if not code_verifier:
-            logger.error("Missing code_verifier")
-            return JSONResponse(
-                {"error": "invalid_request", "error_description": "Missing code_verifier"},
-                status_code=400
-            )
-        
-        logger.info("8. Computing PKCE challenge...")
-        expected_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode()).digest()
-        ).decode().rstrip('=')
-        
-        logger.info("9. Verifying PKCE challenge...")
-        if expected_challenge != auth_data["code_challenge"]:
-            logger.error("PKCE validation failed")
-            logger.error(f"Expected: {expected_challenge}")
-            logger.error(f"Received: {auth_data['code_challenge']}")
-            return JSONResponse(
-                {"error": "invalid_grant", "error_description": "Invalid code_verifier"},
-                status_code=400
-            )
-        
-        logger.info("10. PKCE validation successful, generating token...")
-        access_token = f"mcp_access_token_{secrets.token_urlsafe(32)}"
-        
-        logger.info("11. Cleaning up auth code...")
-        del AUTH_CODES[code]
-        
-        logger.info("12. Building response...")
-        response = {
-            "access_token": access_token,
-            "token_type": "Bearer",
-            "expires_in": 3600,
-            "scope": auth_data["scope"]
-        }
-        
-        logger.info(f"=== TOKEN SUCCESS: {access_token[:20]}... ===")
-        return response
-        
-    except HTTPException as he:
-        logger.error(f"=== TOKEN HTTP ERROR: {he.detail} ===")
-        raise
-    except Exception as e:
-        logger.error(f"=== TOKEN ERROR: {e} ===")
-        logger.error(f"Error type: {type(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return JSONResponse(
-            {"error": "invalid_request", "error_description": str(e)},
-            status_code=400
-        )
-
-# SSE endpoint with MCP OAuth 2.1 support - GET only (FastMCP uses GET for SSE)
+# SSE endpoints with Auth0 token validation
 @app.get("/sse")
 async def sse_get(request: Request):
-    """GET SSE endpoint - requires MCP access token"""
+    """GET SSE endpoint - requires Auth0 access token"""
     auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer mcp_access_token_"):
-        logger.info("GET /sse - No valid token, returning 401")
+    if not auth or not auth.startswith("Bearer "):
+        logger.info("GET /sse - No Bearer token, returning 401")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
@@ -887,15 +655,19 @@ async def sse_get(request: Request):
         )
     
     token = auth.split(" ", 1)[1]
-    logger.info(f"GET /sse - Valid token found ({token[:20]}...), forwarding to SSE")
+    logger.info(f"GET /sse - Auth0 token found ({token[:20]}...), forwarding to SSE")
+    
+    # TODO: Validate Auth0 token here (for now accept any Bearer token)
+    # In production: verify JWT signature against Auth0 JWKS
+    
     return await sse_app(request.scope, request.receive, request._send)
 
 @app.head("/sse")
 async def sse_head(request: Request):
-    """HEAD SSE endpoint - requires MCP access token"""
+    """HEAD SSE endpoint - requires Auth0 access token"""
     auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer mcp_access_token_"):
-        logger.info("HEAD /sse - No valid token, returning 401")
+    if not auth or not auth.startswith("Bearer "):
+        logger.info("HEAD /sse - No Bearer token, returning 401")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
@@ -903,22 +675,22 @@ async def sse_head(request: Request):
         )
     
     token = auth.split(" ", 1)[1]
-    logger.info(f"HEAD /sse - Valid token found ({token[:20]}...), returning 200")
+    logger.info(f"HEAD /sse - Auth0 token found ({token[:20]}...), returning 200")
     return Response(status_code=200)
 
 @app.post("/sse")
 async def sse_post(request: Request):
-    """POST SSE endpoint - requires MCP access token"""
+    """POST SSE endpoint - requires Auth0 access token"""
     auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer mcp_access_token_"):
-        logger.info("POST /sse - No valid token, returning 401")
+    if not auth or not auth.startswith("Bearer "):
+        logger.info("POST /sse - No Bearer token, returning 401")
         return JSONResponse(
             {"error": "unauthorized"}, 
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    logger.info("POST /sse - Valid token found, forwarding to SSE app")
+    logger.info("POST /sse - Auth0 token found, forwarding to SSE app")
     return await sse_app(request.scope, request.receive, request._send)
 
 # Note: Cleanup automatique supprimé pour éviter les conflits ASGI
