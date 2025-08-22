@@ -656,18 +656,29 @@ async def authorize(
 @app.post("/token")
 async def token_exchange(request: Request):
     """OAuth 2.1 token exchange endpoint"""
+    logger.info("=== TOKEN EXCHANGE REQUEST ===")
+    logger.info(f"Headers: {dict(request.headers)}")
+    
     try:
-        # Parse form data
         form_data = await request.form()
+        logger.info(f"Form data: {dict(form_data)}")
+        
+        # Log each parameter
         grant_type = form_data.get("grant_type")
-        code = form_data.get("code")
+        code = form_data.get("code") 
         client_id = form_data.get("client_id")
         code_verifier = form_data.get("code_verifier")
+        redirect_uri = form_data.get("redirect_uri")
         
-        logger.info(f"Token exchange request: grant_type={grant_type}, client_id={client_id}")
+        logger.info(f"grant_type: {grant_type}")
+        logger.info(f"code: {code}")
+        logger.info(f"client_id: {client_id}")
+        logger.info(f"code_verifier: {code_verifier}")
+        logger.info(f"redirect_uri: {redirect_uri}")
         
         # Validate grant type
         if grant_type != "authorization_code":
+            logger.error(f"Invalid grant_type: {grant_type}")
             raise HTTPException(status_code=400, detail="Unsupported grant_type")
         
         # Generate access token (dummy implementation for MCP compatibility)
@@ -680,12 +691,19 @@ async def token_exchange(request: Request):
             "scope": "claudeai"
         }
         
-        logger.info("Token exchange successful")
+        logger.info(f"Returning token: {response}")
+        logger.info("=== TOKEN EXCHANGE SUCCESS ===")
         return response
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Token exchange error: {e}")
-        raise HTTPException(status_code=400, detail="Invalid token request")
+        logger.error("=== TOKEN EXCHANGE FAILED ===")
+        return JSONResponse(
+            {"error": "invalid_request", "error_description": str(e)},
+            status_code=400
+        )
 
 # Enhanced SSE endpoint with OAuth support
 @app.get("/sse")
