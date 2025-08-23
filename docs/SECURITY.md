@@ -235,7 +235,7 @@ ufw enable
 
 ```bash
 # Emergency shutdown
-pkill -f odoo_mcp_server.py
+pkill -f mcp_server.py
 
 # Revoke access
 # 1. Change Odoo password

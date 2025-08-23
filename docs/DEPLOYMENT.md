@@ -29,7 +29,7 @@ Railway is the recommended platform for production deployment due to its simplic
    cp .env.example .env
    # Edit .env with your credentials
    # Test locally
-   python odoo_mcp_server.py
+   python mcp_server.py
    ```
 
 ### Step 2: Deploy to Railway
@@ -103,7 +103,7 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["python", "odoo_mcp_server.py"]
+CMD ["python", "mcp_server.py"]
 ```
 
 ### Docker Compose
@@ -227,7 +227,7 @@ Track:
 Enable debug logging:
 ```bash
 export LOG_LEVEL=DEBUG
-python odoo_mcp_server.py
+python mcp_server.py
 ```
 
 ### Support

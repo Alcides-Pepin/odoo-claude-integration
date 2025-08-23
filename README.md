@@ -47,7 +47,7 @@ ODOO_PASSWORD=your-secure-password
 
 5. Run the server:
 ```bash
-python odoo_mcp_server.py
+python mcp_server.py
 ```
 
 ## 🚀 Railway Deployment
@@ -77,7 +77,7 @@ Add to your Claude Desktop config:
   "mcpServers": {
     "odoo": {
       "command": "python",
-      "args": ["/path/to/odoo_mcp_server.py"]
+      "args": ["/path/to/mcp_server.py"]
     }
   }
 }
