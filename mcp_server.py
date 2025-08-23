@@ -17,8 +17,7 @@ from typing import Any, List, Dict, Optional
 from dotenv import load_dotenv
 
 # MCP SDK imports
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.server.fastmcp import FastMCP
 
 # Load environment variables
 load_dotenv()
@@ -85,18 +84,19 @@ def get_odoo_connection():
         logger.error(f"Connection error: {e}")
         raise
 
+
+# Initialize FastMCP server
+mcp = FastMCP("odoo-mcp")
+
+@mcp.tool()
 async def odoo_health_check() -> str:
-    """
-    Check if Odoo connection is healthy and database is accessible.
+    """Check if Odoo connection is healthy and database is accessible.
     
     Performs comprehensive tests including:
     - Connection to Odoo server
     - Authentication verification
     - Database access to core models
     - Performance measurement
-    
-    Returns:
-        Health check report with test results
     """
     result = "Odoo Health Check Report\n" + "="*30 + "\n\n"
     
@@ -184,19 +184,12 @@ async def odoo_health_check() -> str:
     
     return result
 
+@mcp.tool()
 async def odoo_discover_models(search_term: str = "") -> str:
-    """
-    Discover available Odoo models by searching in model registry.
+    """Discover available Odoo models by searching in model registry.
     
     Args:
         search_term: Optional search term to filter models by name or description
-        
-    Returns:
-        List of matching models with their names and descriptions
-        
-    Example:
-        odoo_discover_models("partner") -> Returns models related to partners
-        odoo_discover_models() -> Returns all available models (up to 50)
     """
     try:
         models, uid = get_odoo_connection()
@@ -238,18 +231,12 @@ async def odoo_discover_models(search_term: str = "") -> str:
     except Exception as e:
         return f"Error discovering models: {str(e)}"
 
+@mcp.tool()
 async def odoo_get_model_fields(model_name: str) -> str:
-    """
-    Get detailed information about all fields of a specific Odoo model.
+    """Get detailed information about all fields of a specific Odoo model.
     
     Args:
         model_name: The technical name of the model (e.g., 'res.partner')
-        
-    Returns:
-        Detailed field information including types, relations, and constraints
-        
-    Example:
-        odoo_get_model_fields("res.partner") -> Returns all partner fields
     """
     try:
         models, uid = get_odoo_connection()
@@ -311,6 +298,7 @@ async def odoo_get_model_fields(model_name: str) -> str:
     except Exception as e:
         return f"Error getting model fields: {str(e)}"
 
+@mcp.tool()
 async def odoo_search(
     model: str, 
     domain: Optional[List[Any]] = None, 
@@ -319,8 +307,7 @@ async def odoo_search(
     offset: int = 0, 
     order: Optional[str] = None
 ) -> str:
-    """
-    Search and retrieve records from any Odoo model with advanced filtering.
+    """Search and retrieve records from any Odoo model with advanced filtering.
     
     Args:
         model: The Odoo model to search in (e.g., 'res.partner')
@@ -329,14 +316,6 @@ async def odoo_search(
         limit: Maximum number of records to return (default: 10, max: 100)
         offset: Number of records to skip (for pagination)
         order: Sort order (e.g., 'name desc, id')
-    
-    Returns:
-        Formatted string with search results and pagination info
-        
-    Examples:
-        odoo_search("res.partner", [["is_company", "=", True]], ["name", "email"])
-        odoo_search("sale.order", [["state", "=", "sale"]], limit=5)
-        odoo_search("product.product", [["name", "ilike", "laptop"]], order="list_price desc")
     """
     try:
         models, uid = get_odoo_connection()
@@ -439,28 +418,20 @@ async def odoo_search(
     except Exception as e:
         return f"Error searching: {str(e)}"
 
+@mcp.tool()
 async def odoo_execute(
     model: str, 
     method: str, 
     args: Optional[List[Any]] = None, 
     kwargs: Optional[Dict[str, Any]] = None
 ) -> str:
-    """
-    Execute any method on an Odoo model. This is a powerful generic wrapper.
+    """Execute any method on an Odoo model. This is a powerful generic wrapper.
     
     Args:
         model: The Odoo model name (e.g., 'res.partner')
         method: The method to execute (e.g., 'create', 'write', 'search')
         args: List of positional arguments for the method
         kwargs: Dictionary of keyword arguments for the method
-    
-    Returns:
-        String representation of the result
-        
-    Examples:
-        odoo_execute("res.partner", "create", [{"name": "John Doe"}])
-        odoo_execute("res.partner", "search", [[("name", "ilike", "john")]])
-        odoo_execute("res.partner", "fields_get", [], {"attributes": ["string", "type"]})
     """
     try:
         # Security check
@@ -525,81 +496,9 @@ async def odoo_execute(
     except Exception as e:
         return f"Error executing method: {str(e)}"
 
-# Initialize server
-server = stdio_server()
-
-@server.list_tools()
-async def handle_list_tools() -> list[Tool]:
-    """List all available tools"""
-    return [
-        Tool(
-            name="odoo_health_check",
-            description="Check if Odoo connection is healthy and database is accessible",
-        ),
-        Tool(
-            name="odoo_discover_models",
-            description="Discover available Odoo models by searching in model registry",
-        ),
-        Tool(
-            name="odoo_get_model_fields", 
-            description="Get detailed information about all fields of a specific Odoo model",
-        ),
-        Tool(
-            name="odoo_search",
-            description="Search and retrieve records from any Odoo model with advanced filtering",
-        ),
-        Tool(
-            name="odoo_execute",
-            description="Execute any method on an Odoo model. This is a powerful generic wrapper",
-        ),
-    ]
-
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
-    """Handle tool calls"""
-    try:
-        if name == "odoo_health_check":
-            result = await odoo_health_check()
-        elif name == "odoo_discover_models":
-            search_term = arguments.get("search_term", "")
-            result = await odoo_discover_models(search_term)
-        elif name == "odoo_get_model_fields":
-            model_name = arguments.get("model_name")
-            if not model_name:
-                result = "Error: model_name parameter is required"
-            else:
-                result = await odoo_get_model_fields(model_name)
-        elif name == "odoo_search":
-            model = arguments.get("model")
-            if not model:
-                result = "Error: model parameter is required"
-            else:
-                domain = arguments.get("domain")
-                fields = arguments.get("fields")
-                limit = arguments.get("limit", 10)
-                offset = arguments.get("offset", 0)
-                order = arguments.get("order")
-                result = await odoo_search(model, domain, fields, limit, offset, order)
-        elif name == "odoo_execute":
-            model = arguments.get("model")
-            method = arguments.get("method")
-            if not model or not method:
-                result = "Error: model and method parameters are required"
-            else:
-                args = arguments.get("args")
-                kwargs = arguments.get("kwargs")
-                result = await odoo_execute(model, method, args, kwargs)
-        else:
-            result = f"Unknown tool: {name}"
-        
-        return [TextContent(type="text", text=result)]
-    except Exception as e:
-        logger.error(f"Tool call error: {e}")
-        return [TextContent(type="text", text=f"Error: {str(e)}")]
-
-async def main():
-    """Main entry point for the MCP server"""
-    logger.info("Starting Odoo MCP Server with official SDK...")
+if __name__ == "__main__":
+    # Configuration logging
+    logger.info("Starting Odoo MCP Server with FastMCP...")
     logger.info(f"Configuration:")
     logger.info(f"  - Odoo URL: {ODOO_URL}")
     logger.info(f"  - Database: {ODOO_DB}")
@@ -613,13 +512,6 @@ async def main():
     logger.info(f"  - odoo_execute: Execute any model method")
     logger.info(f"  - odoo_search: Search records with filters")
     
-    try:
-        # Run the MCP server
-        logger.info("MCP Server initialized and running...")
-        await server.run()
-    except Exception as e:
-        logger.error(f"Server error: {e}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Run the FastMCP server
+    logger.info("FastMCP Server initialized and running...")
+    mcp.run(transport='stdio')
