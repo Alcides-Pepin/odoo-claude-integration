@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from mcp.server.stdio import stdio_server
 from mcp.server.models import InitializationOptions
 from mcp.types import Tool, TextContent
+from mcp.server import Server
 
 # Load environment variables
 load_dotenv()
@@ -536,34 +537,77 @@ async def main():
     logger.info(f"  - Timeout: {TIMEOUT}s")
     
     # Initialize server
-    server = stdio_server()
+    server = Server("odoo-mcp")
     
     # Register ALL tools with server
-    server.add_tool(Tool(
-        name="odoo_health_check", 
-        description="Check if Odoo connection is healthy and database is accessible",
-        function=odoo_health_check
-    ))
-    server.add_tool(Tool(
-        name="odoo_discover_models", 
-        description="Discover available Odoo models by searching in model registry",
-        function=odoo_discover_models
-    ))
-    server.add_tool(Tool(
-        name="odoo_get_model_fields", 
-        description="Get detailed information about all fields of a specific Odoo model",
-        function=odoo_get_model_fields
-    ))
-    server.add_tool(Tool(
-        name="odoo_search", 
-        description="Search and retrieve records from any Odoo model with advanced filtering",
-        function=odoo_search
-    ))
-    server.add_tool(Tool(
-        name="odoo_execute", 
-        description="Execute any method on an Odoo model. This is a powerful generic wrapper",
-        function=odoo_execute
-    ))
+    @server.list_tools()
+    async def handle_list_tools() -> list[Tool]:
+        """List all available tools"""
+        return [
+            Tool(
+                name="odoo_health_check",
+                description="Check if Odoo connection is healthy and database is accessible",
+            ),
+            Tool(
+                name="odoo_discover_models",
+                description="Discover available Odoo models by searching in model registry",
+            ),
+            Tool(
+                name="odoo_get_model_fields", 
+                description="Get detailed information about all fields of a specific Odoo model",
+            ),
+            Tool(
+                name="odoo_search",
+                description="Search and retrieve records from any Odoo model with advanced filtering",
+            ),
+            Tool(
+                name="odoo_execute",
+                description="Execute any method on an Odoo model. This is a powerful generic wrapper",
+            ),
+        ]
+    
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
+        """Handle tool calls"""
+        try:
+            if name == "odoo_health_check":
+                result = await odoo_health_check()
+            elif name == "odoo_discover_models":
+                search_term = arguments.get("search_term", "")
+                result = await odoo_discover_models(search_term)
+            elif name == "odoo_get_model_fields":
+                model_name = arguments.get("model_name")
+                if not model_name:
+                    result = "Error: model_name parameter is required"
+                else:
+                    result = await odoo_get_model_fields(model_name)
+            elif name == "odoo_search":
+                model = arguments.get("model")
+                if not model:
+                    result = "Error: model parameter is required"
+                else:
+                    domain = arguments.get("domain")
+                    fields = arguments.get("fields")
+                    limit = arguments.get("limit", 10)
+                    offset = arguments.get("offset", 0)
+                    order = arguments.get("order")
+                    result = await odoo_search(model, domain, fields, limit, offset, order)
+            elif name == "odoo_execute":
+                model = arguments.get("model")
+                method = arguments.get("method")
+                if not model or not method:
+                    result = "Error: model and method parameters are required"
+                else:
+                    args = arguments.get("args")
+                    kwargs = arguments.get("kwargs")
+                    result = await odoo_execute(model, method, args, kwargs)
+            else:
+                result = f"Unknown tool: {name}"
+            
+            return [TextContent(type="text", text=result)]
+        except Exception as e:
+            logger.error(f"Tool call error: {e}")
+            return [TextContent(type="text", text=f"Error: {str(e)}")]
     
     logger.info(f"Available tools:")
     logger.info(f"  - odoo_health_check: Check system health")
@@ -574,9 +618,19 @@ async def main():
     
     try:
         # Run the MCP server
-        async with server as s:
+        async with stdio_server() as (read_stream, write_stream):
             logger.info("MCP Server initialized and running...")
-            await s.run()
+            await server.run(
+                read_stream, write_stream, 
+                InitializationOptions(
+                    server_name="odoo-mcp",
+                    server_version="1.0.0",
+                    capabilities=server.get_capabilities(
+                        notification_options=None,
+                        experimental_capabilities=None,
+                    ),
+                )
+            )
     except Exception as e:
         logger.error(f"Server error: {e}")
         sys.exit(1)
