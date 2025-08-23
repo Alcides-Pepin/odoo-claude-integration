@@ -86,7 +86,6 @@ def get_odoo_connection():
         logger.error(f"Connection error: {e}")
         raise
 
-@stdio_server.tool("odoo_health_check")
 async def odoo_health_check() -> str:
     """
     Check if Odoo connection is healthy and database is accessible.
@@ -186,7 +185,6 @@ async def odoo_health_check() -> str:
     
     return result
 
-@stdio_server.tool("odoo_discover_models")
 async def odoo_discover_models(search_term: str = "") -> str:
     """
     Discover available Odoo models by searching in model registry.
@@ -241,7 +239,6 @@ async def odoo_discover_models(search_term: str = "") -> str:
     except Exception as e:
         return f"Error discovering models: {str(e)}"
 
-@stdio_server.tool("odoo_get_model_fields")
 async def odoo_get_model_fields(model_name: str) -> str:
     """
     Get detailed information about all fields of a specific Odoo model.
@@ -315,7 +312,6 @@ async def odoo_get_model_fields(model_name: str) -> str:
     except Exception as e:
         return f"Error getting model fields: {str(e)}"
 
-@stdio_server.tool("odoo_search")
 async def odoo_search(
     model: str, 
     domain: Optional[List[Any]] = None, 
@@ -444,7 +440,6 @@ async def odoo_search(
     except Exception as e:
         return f"Error searching: {str(e)}"
 
-@stdio_server.tool("odoo_execute")
 async def odoo_execute(
     model: str, 
     method: str, 
@@ -539,6 +534,37 @@ async def main():
     logger.info(f"  - Database: {ODOO_DB}")
     logger.info(f"  - User: {ODOO_USER}")
     logger.info(f"  - Timeout: {TIMEOUT}s")
+    
+    # Initialize server
+    server = stdio_server()
+    
+    # Register ALL tools with server
+    server.add_tool(Tool(
+        name="odoo_health_check", 
+        description="Check if Odoo connection is healthy and database is accessible",
+        function=odoo_health_check
+    ))
+    server.add_tool(Tool(
+        name="odoo_discover_models", 
+        description="Discover available Odoo models by searching in model registry",
+        function=odoo_discover_models
+    ))
+    server.add_tool(Tool(
+        name="odoo_get_model_fields", 
+        description="Get detailed information about all fields of a specific Odoo model",
+        function=odoo_get_model_fields
+    ))
+    server.add_tool(Tool(
+        name="odoo_search", 
+        description="Search and retrieve records from any Odoo model with advanced filtering",
+        function=odoo_search
+    ))
+    server.add_tool(Tool(
+        name="odoo_execute", 
+        description="Execute any method on an Odoo model. This is a powerful generic wrapper",
+        function=odoo_execute
+    ))
+    
     logger.info(f"Available tools:")
     logger.info(f"  - odoo_health_check: Check system health")
     logger.info(f"  - odoo_discover_models: Find available models")
@@ -547,10 +573,10 @@ async def main():
     logger.info(f"  - odoo_search: Search records with filters")
     
     try:
-        # Initialize and run the MCP server
-        async with stdio_server() as server:
+        # Run the MCP server
+        async with server as s:
             logger.info("MCP Server initialized and running...")
-            await server.run()
+            await s.run()
     except Exception as e:
         logger.error(f"Server error: {e}")
         sys.exit(1)
