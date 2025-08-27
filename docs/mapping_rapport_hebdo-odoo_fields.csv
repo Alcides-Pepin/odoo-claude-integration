@@ -1,0 +1,265 @@
+Lignes du tableau précédent,Lignes renommées,Condition ,Code
+Chiffre d'affaires Achillée AVEC Tasting,Chiffre d'affaires Achillée réalisé suite à des rendez-vous,"Addition du chiffre d'affaires de toutes les commandes : 
+- Associées à la société Achillée 
+- Créées dans la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport. 
+- Liées à une opportunité","def get_chiffre_affaires_commandes_opportunites(self, company_id, date_debut, date_fin, user_id):
+    """"""
+    Calcule le chiffre d'affaires des commandes liées à des opportunités
+    pour un utilisateur donné sur une période donnée
+    """"""
+    domain = [
+        ('company_id', '=', company_id),
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+        ('opportunity_id', '!=', False),
+    ]
+    
+    orders = self.env['sale.order'].search(domain)
+    return sum(orders.mapped('amount_total'))"
+Chiffre d'affaires Achillée à distance : Corentin,Chiffre d'affaires Achillée réalisé sans rendez-vous,"Addition du chiffre de toutes les commandes : 
+- Associées à Achillée 
+- Créées dans la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport. 
+- Liées à aucune une opportunité","def get_chiffre_affaires_commandes_sans_opportunites(self, company_id, date_debut, date_fin, user_id):
+    """"""
+    Calcule le chiffre d'affaires des commandes NON liées à des opportunités
+    pour un utilisateur donné sur une période donnée
+    """"""
+    domain = [
+        ('company_id', '=', company_id),
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+        ('opportunity_id', '=', False),  # Aucune opportunité liée
+    ]
+    
+    orders = self.env['sale.order'].search(domain)
+    return sum(orders.mapped('amount_total'))"
+Chiffre d'affaires Achillée à distance : Cameron,,,
+ACHILLEE TOTALE,Chiffre d'affaires Achillée Total,"Addition du chiffre de toutes les commandes : 
+- Associées à Achillée 
+- Créées dans la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport. ","def get_chiffre_affaires_commandes_total(self, company_id, date_debut, date_fin, user_id):
+    """"""
+    Calcule le chiffre d'affaires total de toutes les commandes
+    pour un utilisateur donné sur une période donnée
+    """"""
+    domain = [
+        ('company_id', '=', company_id),
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+    ]
+    
+    orders = self.env['sale.order'].search(domain)
+    return sum(orders.mapped('amount_total'))"
+Chiffre d'affaires Pépin AVEC Tasting,Chiffre d'affaires Pépin réalisé suite à des rendez-vous,"Addition du chiffre de toutes les commandes : 
+- Associées à Pépin
+- Créées dans la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport. 
+- Liées à une opportunité","def get_chiffre_affaires_commandes_opportunites(self, company_id, date_debut, date_fin, user_id):
+    """"""
+    Calcule le chiffre d'affaires des commandes liées à des opportunités
+    pour un utilisateur donné sur une période donnée
+    """"""
+    domain = [
+        ('company_id', '=', company_id),
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+        ('opportunity_id', '!=', False),
+    ]
+    
+    orders = self.env['sale.order'].search(domain)
+    return sum(orders.mapped('amount_total'))"
+Chiffré d'affaires Pépin à distance : Corentin,Chiffre d'affaires Pépin réalisé sans rendez-vous,"Addition du chiffre de toutes les commandes : 
+- Associées à Pépin
+- Créées dans la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport. 
+- Liées à aucune une opportunité","def get_chiffre_affaires_commandes_sans_opportunites(self, company_id, date_debut, date_fin, user_id):
+    """"""
+    Calcule le chiffre d'affaires des commandes NON liées à des opportunités
+    pour un utilisateur donné sur une période donnée
+    """"""
+    domain = [
+        ('company_id', '=', company_id),
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+        ('opportunity_id', '=', False),  # Aucune opportunité liée
+    ]
+    
+    orders = self.env['sale.order'].search(domain)
+    return sum(orders.mapped('amount_total'))"
+Chiffré d'affaires Pépin à distance : Cameron,,,
+PEPIN TOTALE,Chiffre d'affaires Pépin Total,"Addition du chiffre de toutes les commandes : 
+- Associées à Pépin
+- Créées dans la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport. ","def get_chiffre_affaires_commandes_total(self, company_id, date_debut, date_fin, user_id):
+    """"""
+    Calcule le chiffre d'affaires total de toutes les commandes
+    pour un utilisateur donné sur une période donnée
+    """"""
+    domain = [
+        ('company_id', '=', company_id),
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+    ]
+    
+    orders = self.env['sale.order'].search(domain)
+    return sum(orders.mapped('amount_total'))"
+Nombre de RDV placés par commercial sédentaire,Nombre de rendez-vous placés,"Addition de toutes les opportunités :
+- Créées pendant la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport
+- Dont l'étape d'opportunité est RDV dégustation fixée","def get_nombre_rdv_places(self, date_debut, date_fin, user_id):
+    """"""
+    Compte le nombre d'opportunités avec RDV dégustation fixée
+    """"""
+    domain = [
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+        ('stage_id', '=', 2),
+    ]
+    
+    return self.env['crm.lead'].search_count(domain)"
+Nombre de RDV placés par commercial terrain,,,
+Nombre de Passer Voir,Nombre de Passer Voir,"Addition de toutes les opportunités :
+- Créées pendant la période donnée
+- Dont le vendeur est l'utilisateur concerné par le rapport
+- Dont l'étape d'opportunité est Passer Voir","def get_nombre_passer_voir(self, date_debut, date_fin, user_id):
+    """"""
+    Compte le nombre d'opportunités à l'étape ""Passer Voir""
+    pour un utilisateur donné sur une période donnée
+    """"""
+    domain = [
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('user_id', '=', user_id),
+        ('stage_id', '=', 6),  # Étape ""Passer Voir""
+    ]
+    
+    return self.env['crm.lead'].search_count(domain)"
+Nombre de Passer Voir convertis,Nombre de Passer Voir convertis,Pas géré,
+Nombre de RDV réalisés,Nombre de rendez-vous réalisés,"Addition de toutes les dégustations : 
+- Créées pendant la période donnée
+- Dont l'opportunité associée à pour vendeur l'utilisateur concerné","def get_nombre_rdv_realises(self, date_debut, date_fin, user_id):
+    """"""
+    Compte le nombre de dégustations dont l'opportunité associée
+    appartient à l'utilisateur concerné sur une période donnée
+    """"""
+    domain = [
+        ('create_date', '>=', date_debut),
+        ('create_date', '<=', date_fin),
+        ('opportunity_id.user_id', '=', user_id),  # Vendeur de l'opportunité liée
+    ]
+    
+    return self.env['wine.tasting'].search_count(domain)"
+Nombre de nouveaux clients,Nombre de nouveaux clients,"Addition de tous les contacts :
+- Dont la première commande a été créée dans la période donnée
+- Dont aucun relevé avant le début de la période donnée
+- Dont le vendeur est l'utilisateur concerné",
+Nombre de commandes par commercial sédentaire,,,
+Nombre de commandes par commercial terrain,Nombre de commandes,"Addition de toutes les commandes : 
+- Dont la date de devis est dans la période donnée
+- Dont le vendeur est l'utilisateur concerné","def get_nombre_commandes(self, date_debut, date_fin, user_id):
+   """"""
+   Compte le nombre de commandes dont la date de devis
+   est dans la période donnée pour un utilisateur
+   """"""
+   domain = [
+       ('date_order', '>=', date_debut),
+       ('date_order', '<=', date_fin),
+       ('user_id', '=', user_id),
+   ]
+   
+   return self.env['sale.order'].search_count(domain)"
+Nombre de relances impayés faites ( Cameron + Corentin ),Nombre de relances impayés faites,Pas géré,
+Nombre de paiements récupérés,Nombre de paiements récupérés,Pas géré,
+Nombre de recommandations,Nombre de recommandations,"Addition de tous les contact : 
+- Dont le vendeur est l'utilisateur concerné
+- Créées dans la période donnée
+- Dont les étiquettes contiennent ""Recommandation""","def get_nombre_recommandations(self, date_debut, date_fin, user_id):
+   """"""
+   Compte le nombre de contacts avec étiquette ""Recommandation""
+   pour un utilisateur donné sur une période donnée
+   """"""
+   domain = [
+       ('user_id', '=', user_id),
+       ('create_date', '>=', date_debut),
+       ('create_date', '<=', date_fin),
+       ('category_id', 'in', [320]),  # Étiquette ""Recommandation""
+   ]
+   
+   return self.env['res.partner'].search_count(domain)"
+Nombre de livraisons,Nombre de livraisons,"Toutes les livraisons stock.picking dont la date_done est dans la fourchette de dates données et dont le responsable user_id est l'utilisateur concerné. 
+Addition de toutes les livraisons :
+- Livrées dans la période donnée
+- Dont le responsable est l'utilisateur concerné","def get_nombre_livraisons(self, date_debut, date_fin, user_id):
+   """"""
+   Compte le nombre de livraisons effectuées
+   pour un utilisateur donné sur une période donnée
+   """"""
+   domain = [
+       ('date_done', '>=', date_debut),
+       ('date_done', '<=', date_fin),
+       ('user_id', '=', user_id),
+   ]
+   
+   return self.env['stock.picking'].search_count(domain)"
+"Top 1 prospects ou client
+Exemples
+Ouvrir un client 
+Faire bouger une ligne chez un client
+Placer une nouvelle réf",Top 1,"Le premier contact : 
+- Dont le vendeur est l'utilisateur concerné
+- Dont les étiiquettes contiennent ""Top 1""","def get_top_contact(self, user_id, top_id):
+   """"""
+   Récupère le premier contact avec une étiquette Top spécifique
+   pour un utilisateur donné
+   """"""
+   domain = [
+       ('user_id', '=', user_id),
+       ('category_id', 'in', [top_id]),
+   ]
+   
+   contact = self.env['res.partner'].search(domain, limit=1)
+   return contact.name if contact else None
+
+def get_top_1_contact(self, user_id):
+   return self.get_top_contact(user_id, 776)"
+Top 2 prospects ou client,Top 2,"Le premier contact : 
+- Dont le vendeur est l'utilisateur concerné
+- Dont les étiquettes contiennent ""Top 2""","def get_top_2_contact(self, user_id):
+   return self.get_top_contact(user_id, 777)"
+Top 3 prospects ou client,Top 3,"Le premier contact : 
+- Dont le vendeur est l'utilisateur concerné
+- Dont les étiquettes contiennent ""Top 3""","def get_top_3_contact(self, user_id):
+   return self.get_top_contact(user_id, 767)"
+Top 4 prospects ou client,Top 4,"Le premier contact : 
+- Dont le vendeur est l'utilisateur concerné
+- Dont les étiquettes contiennent ""Top 4""","def get_top_4_contact(self, user_id):
+   return self.get_top_contact(user_id, 779)"
+Top 5 prospects ou client,Top 5,"Le premier contact : 
+- Dont le vendeur est l'utilisateur concerné
+- Dont les étiquettes contiennent ""Top 5""","def get_top_5_contact(self, user_id):
+   return self.get_top_contact(user_id, 780)"
+Top Sup,Tip Top,"Tous les contact : 
+- Dont le vendeur est l'utilisateur concerné
+- Dont les étiquettes contiennent ""Tip Top""","def get_tip_top_contacts(self, user_id):
+   """"""
+   Récupère tous les contacts avec étiquette ""Tip Top""
+   pour un utilisateur donné
+   """"""
+   domain = [
+       ('user_id', '=', user_id),
+       ('category_id', 'in', [781]),  # Étiquette ""Tip Top""
+   ]
+   
+   return self.env['res.partner'].search(domain)"
+Top à sauvegarder,,,
+Point positif,,,
+Améliorations,,,
