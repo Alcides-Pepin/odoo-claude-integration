@@ -1,194 +1,170 @@
-# Spécifications Minimales pour Serveur MCP
+# CLAUDE.md
 
-## Vue d'ensemble
-Ce document détaille les spécifications minimales pour créer un serveur MCP (Model Context Protocol) fonctionnel avec FastMCP et compatible avec Claude Web.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Structure de base minimale
+## Project Overview
 
-### Imports requis
+This is an Odoo MCP Server that provides a standardized interface for interacting with Odoo systems via Claude Web. The server implements essential tools for model discovery, data search, and CRUD operations through the Model Context Protocol (MCP).
+
+## Development Commands
+
+### Running the Server
+```bash
+# Local development
+python odoo_mcp.py
+
+# With environment variables
+ODOO_URL=https://your-instance.com ODOO_DB=db_name python odoo_mcp.py
+```
+
+### Environment Setup
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env file with required variables:
+# ODOO_URL, ODOO_DB, ODOO_USER, ODOO_PASSWORD
+```
+
+### Testing the Server
+- Test connectivity: Use the `ping` tool in Claude Web
+- Test Odoo connection: Use the `odoo_health_check` tool
+- Verify deployment: URL should be `https://your-app.up.railway.app/sse` for Claude Web
+
+## Architecture
+
+### Core Components
+
+**Main Server (`odoo_mcp.py`):**
+- FastMCP server instance with SSE transport
+- 6 MCP tools for Odoo interaction
+- Security blacklist for dangerous operations
+- Timeout and error handling for XML-RPC calls
+
+**Connection Management:**
+- `get_odoo_connection()`: Establishes authenticated connection to Odoo via XML-RPC
+- `create_server_proxy()`: Creates XML-RPC proxy with timeout configuration
+- Environment-based configuration with required variables
+
+**Security Layer:**
+- `SECURITY_BLACKLIST`: Prevents dangerous operations (user deletion, model deletion, etc.)
+- Input validation and model existence checks
+- Error handling prevents information leakage
+
+### Tool Architecture
+
+All tools follow the same pattern:
+1. Parameter validation and type checking
+2. Odoo connection establishment via `get_odoo_connection()`
+3. Business logic execution with XML-RPC calls
+4. Structured JSON response with consistent error handling
+
+**Tool Categories:**
+- **System Tools:** `ping`, `odoo_health_check`
+- **Discovery Tools:** `odoo_discover_models`, `odoo_get_model_fields`  
+- **Data Tools:** `odoo_search`, `odoo_execute`
+
+### Response Format Standards
+
+All tools return JSON strings with consistent structure:
 ```python
-import json
-import datetime
-import os
-from mcp.server.fastmcp import FastMCP
-```
-
-### Configuration du serveur
-```python
-# Port depuis variable d'environnement (Railway/Render)
-PORT = int(os.environ.get("PORT", 8001))
-
-# Initialisation du serveur FastMCP
-mcp = FastMCP("nom-serveur", host="0.0.0.0", port=PORT)
-```
-
-### Point d'entrée
-```python
-if __name__ == "__main__":
-    # Lancement avec transport SSE
-    mcp.run(transport="sse")
-```
-
-## Outils (Tools)
-
-### Déclaration d'un outil
-```python
-@mcp.tool()
-def nom_fonction(parametre: type) -> str:
-    """
-    Description de l'outil.
-    
-    Args:
-        parametre: Description du paramètre
-    
-    Returns:
-        Description du retour (toujours JSON string)
-    """
-    try:
-        # Logique de l'outil
-        response = {
-            "status": "success",
-            "data": "résultat",
-            "timestamp": datetime.datetime.now().isoformat()
-        }
-        return json.dumps(response, indent=2)
-    except Exception as e:
-        return json.dumps({"error": f"Erreur: {str(e)}"})
-```
-
-### Règles importantes
-- **Retour obligatoire** : Toujours retourner une string JSON
-- **Gestion d'erreurs** : Encapsuler dans try/except
-- **Documentation** : Docstring complète obligatoire
-- **Types** : Annoter les paramètres et retours
-
-## Exemple minimal complet
-
-```python
-import json
-import datetime
-import os
-from mcp.server.fastmcp import FastMCP
-
-# Configuration
-PORT = int(os.environ.get("PORT", 8001))
-mcp = FastMCP("mon-serveur-mcp", host="0.0.0.0", port=PORT)
-
-@mcp.tool()
-def ping() -> str:
-    """
-    Test de connectivité du serveur MCP.
-    
-    Returns:
-        JSON string confirmant le fonctionnement
-    """
-    try:
-        response = {
-            "status": "ok",
-            "message": "Serveur MCP opérationnel",
-            "timestamp": datetime.datetime.now().isoformat()
-        }
-        return json.dumps(response, indent=2)
-    except Exception as e:
-        return json.dumps({"error": f"Erreur: {str(e)}"})
-
-if __name__ == "__main__":
-    mcp.run(transport="sse")
-```
-
-## Dépendances minimales
-
-### requirements.txt
-```
-annotated-types==0.7.0
-anyio==4.9.0
-certifi==2025.4.26
-charset-normalizer==3.4.2
-click==8.2.1
-h11==0.16.0
-httpcore==1.0.9
-httpx==0.28.1
-httpx-sse==0.4.0
-idna==3.10
-mcp==1.9.3
-pydantic==2.11.5
-pydantic-core==2.33.2
-pydantic-settings==2.9.1
-python-dotenv==1.1.0
-python-multipart==0.0.20
-sniffio==1.3.1
-sse-starlette==2.3.6
-starlette==0.47.0
-typing-extensions==4.14.0
-typing-inspection==0.4.1
-urllib3==2.4.0
-uvicorn==0.34.3
-```
-
-## Déploiement
-
-### Railway/Render
-- **Commande de démarrage** : `python nom_fichier.py`
-- **Port** : Automatiquement défini via `PORT` env variable
-- **Host** : Obligatoirement `"0.0.0.0"`
-- **Transport** : Toujours `"sse"` pour Claude Web
-
-### Configuration Claude Web
-- **URL** : `https://votre-app.up.railway.app/sse`
-- **Type de transport** : SSE (Server-Sent Events)
-
-## Bonnes pratiques
-
-### Structure des réponses
-```python
-# Succès
+# Success response
 {
     "status": "success",
     "data": {...},
-    "timestamp": "2025-01-27T10:30:00"
+    "timestamp": "ISO-8601"
 }
 
-# Erreur
+# Error response  
 {
-    "error": "Description de l'erreur",
-    "timestamp": "2025-01-27T10:30:00"
+    "error": "Detailed error message"
 }
 ```
 
-### Nommage
-- **Serveur** : `kebab-case` (ex: `"mon-serveur-mcp"`)
-- **Fonctions** : `snake_case` (ex: `ma_fonction`)
-- **Variables** : `snake_case`
+## MCP Development Standards
 
-### Éviter
-- ❌ Outils trop complexes (peuvent casser la détection)
-- ❌ Trop d'éléments simultanés (tools + resources + prompts)
-- ❌ Dépendances externes non nécessaires
-- ❌ Retours non-JSON
-- ❌ Exceptions non gérées
+### Tool Implementation Requirements
+- **Return Type:** All tools must return `str` (JSON string)
+- **Error Handling:** Wrap all logic in try/except blocks
+- **Documentation:** Complete docstrings with Args/Returns sections
+- **Type Hints:** Full type annotation for parameters and return values
 
-## Extension du template
+### Security Considerations
+- Never expose Odoo credentials in responses
+- Validate model names before XML-RPC calls
+- Implement operation blacklist for destructive actions
+- Use timeouts to prevent hanging connections
 
-Pour ajouter des outils, copier le pattern :
+### Deployment Configuration
+- **Transport:** Always use "sse" for Claude Web compatibility
+- **Host:** Must be "0.0.0.0" for cloud deployment
+- **Port:** Use environment variable `PORT` (default: 8001)
+- **Environment Variables:** ODOO_URL, ODOO_DB, ODOO_USER, ODOO_PASSWORD are required
+
+## Extending the Server
+
+When adding new tools, follow this template:
 
 ```python
 @mcp.tool()
-def nouvel_outil(param: str) -> str:
-    """Description complète."""
+def new_tool_name(param: str, optional_param: int = 10) -> str:
+    """
+    Description of what this tool does.
+    
+    Args:
+        param: Description of required parameter
+        optional_param: Description of optional parameter
+    
+    Returns:
+        JSON string with tool results
+    """
     try:
-        # Logique
-        return json.dumps({"result": "success"})
+        models, uid = get_odoo_connection()
+        
+        # Tool logic here
+        result = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            'model.name', 'method',
+            [args], {kwargs}
+        )
+        
+        return json.dumps({
+            "status": "success", 
+            "data": result,
+            "timestamp": datetime.datetime.now().isoformat()
+        }, indent=2)
+        
     except Exception as e:
-        return json.dumps({"error": str(e)})
+        return json.dumps({"error": f"Error: {str(e)}"})
 ```
 
-## Tests de validation
+## Available Tools Reference
 
-1. **Connectivité** : Outil `ping()` obligatoire
-2. **Déploiement** : Tester sur Railway/Render  
-3. **Claude Web** : Vérifier apparition des outils
-4. **Fonctionnalité** : Tester chaque outil individuellement
+1. **`ping`** - Server connectivity test
+2. **`odoo_health_check`** - Comprehensive Odoo health verification  
+3. **`odoo_discover_models`** - Model discovery with search capability
+4. **`odoo_get_model_fields`** - Field information for any model
+5. **`odoo_search`** - Advanced record search with pagination
+6. **`odoo_execute`** - Generic method executor for CRUD operations
 
----
+## Odoo Domain Filter Examples
 
-*Ce template a été validé et testé avec Claude Web. Respecter ces spécifications garantit un serveur MCP fonctionnel.*
+```python
+# Equality
+[['field', '=', 'value']]
+
+# Contains (case-insensitive)  
+[['field', 'ilike', '%search%']]
+
+# Comparisons
+[['field', '>', 100]]
+
+# AND logic (implicit)
+[['field1', '=', 'value1'], ['field2', '>', 10]]
+
+# OR logic
+['|', ['field1', '=', 'value1'], ['field2', '=', 'value2']]
+
+# Complex combinations
+['&', ['state', '=', 'draft'], '|', ['amount_total', '>', 1000], ['priority', '=', 'high']]
+```
