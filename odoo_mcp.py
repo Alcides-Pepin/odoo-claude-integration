@@ -612,30 +612,34 @@ def get_company_revenue(company_id: int, start_date: str, end_date: str, user_id
         start_date: Start date in ISO format
         end_date: End date in ISO format  
         user_id: ID of the user/salesperson
-        with_opportunities: True for orders WITH opportunities, False for WITHOUT, None for ALL
+        with_opportunities: True for invoices WITH opportunities, False for WITHOUT, None for ALL
     
     Returns:
         Total revenue amount
     """
     try:
-        # Build domain
+        # Build domain for account.move (invoices)
         domain = [
             ['company_id', '=', company_id],
-            ['create_date', '>=', start_date],
-            ['create_date', '<=', end_date],
-            ['user_id', '=', user_id]
+            ['invoice_date', '>=', start_date],
+            ['invoice_date', '<=', end_date],
+            ['invoice_user_id', '=', user_id],
+            ['move_type', '=', 'out_invoice'],  # Only customer invoices
+            ['state', '=', 'posted']  # Only validated invoices
         ]
         
         # Add opportunities filter
         if with_opportunities is True:
-            domain.append(['opportunity_id', '!=', False])
+            # For invoices with opportunities - check if related sale order has opportunity
+            domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '!=', False])
         elif with_opportunities is False:
-            domain.append(['opportunity_id', '=', False])
+            # For invoices without opportunities - check if related sale order has NO opportunity
+            domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '=', False])
         # If None, no opportunity filter (total)
         
-        # Search orders
+        # Search invoices
         result = odoo_search(
-            model='sale.order',
+            model='account.move',
             domain=domain,
             fields=['amount_total'],
             limit=100  # Should be enough for weekly reports
