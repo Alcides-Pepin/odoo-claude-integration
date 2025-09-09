@@ -1236,10 +1236,6 @@ def create_report_task(report_data, project_id, task_column_id):
     except Exception as e:
         raise Exception(f"Error creating report task: {str(e)}")
 
-if __name__ == "__main__":
-    # Run the server with SSE transport
-    mcp.run(transport="sse")
-
 @mcp.tool()
 def odoo_activity_report(
     user_id: int,
@@ -1718,3 +1714,7 @@ def create_activity_report_task(report_data, project_id, task_column_id):
             
     except Exception as e:
         raise Exception(f"Error creating activity report task: {str(e)}")
+
+if __name__ == "__main__":
+    # Run the server with SSE transport
+    mcp.run(transport="sse")
