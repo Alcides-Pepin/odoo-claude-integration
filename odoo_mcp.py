@@ -1612,12 +1612,12 @@ def generate_activity_report_html_table(report_data):
                 <tbody>
         """
         
-        # Section Activités
+        # Section Activités - nouveaux labels
         activities_labels = {
-            "activites_realisees": "Activités réalisées",
-            "activites_retard": "Activités en retard",
-            "activites_delais": "Activités dans les délais",
-            "activites_cours_total": "Activités en cours total"
+            "activites_realisees": "Nombre d'activités réalisées dans la période donnée",
+            "activites_retard": "Nombre d'activités en retard",
+            "activites_delais": "Nombre d'activités dans les délais",
+            "activites_cours_total": "Nombre total d'activités en cours"
         }
         
         html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">ACTIVITÉS</td></tr>'
@@ -1631,13 +1631,13 @@ def generate_activity_report_html_table(report_data):
                     </tr>
             """
         
-        # Section Tâches
+        # Section Tâches - nouveaux labels
         tasks_labels = {
-            "taches_realisees": "Tâches réalisées",
-            "taches_retard": "Tâches en retard",
-            "taches_delais": "Tâches dans les délais",
-            "taches_sans_delais": "Tâches sans délais",
-            "taches_cours_total": "Tâches en cours total"
+            "taches_realisees": "Nombre de tâches réalisées dans la période donnée",
+            "taches_retard": "Nombre de tâches en retard",
+            "taches_delais": "Nombre de tâches dans les délais",
+            "taches_sans_delais": "Nombre de tâches sans délais",
+            "taches_cours_total": "Nombre total de tâches en cours"
         }
         
         html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">TÂCHES</td></tr>'
@@ -1651,13 +1651,13 @@ def generate_activity_report_html_table(report_data):
                     </tr>
             """
         
-        # Section Projets
+        # Section Projets - nouveaux labels
         projects_labels = {
-            "projets_realises": "Projets réalisés",
-            "projets_retard": "Projets en retard",
-            "projets_delais": "Projets dans les délais",
-            "projets_sans_dates": "Projets sans dates",
-            "projets_cours_total": "Projets en cours total"
+            "projets_realises": "Nombre de projets réalisés dans la période donnée",
+            "projets_retard": "Nombre de projets en retard",
+            "projets_delais": "Nombre de projets dans les délais",
+            "projets_sans_dates": "Nombre de projets sans dates",
+            "projets_cours_total": "Nombre total de projets en cours"
         }
         
         html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">PROJETS</td></tr>'
