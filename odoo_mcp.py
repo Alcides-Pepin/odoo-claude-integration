@@ -1332,8 +1332,8 @@ def collect_activities_data(start_date: str, end_date: str, user_id: int):
     try:
         today = datetime.datetime.now().strftime('%Y-%m-%d')
         
-        # Activités réalisées
-        activites_realisees = get_activity_count([
+        # Nombres (comme avant)
+        activites_realisees_count = get_activity_count([
             ['active', '=', False],
             ['state', '=', 'done'],
             ['date_done', '>=', start_date],
@@ -1341,7 +1341,6 @@ def collect_activities_data(start_date: str, end_date: str, user_id: int):
             ['user_id', '=', user_id]
         ])
         
-        # Activités en retard
         activites_retard = get_activity_count([
             ['active', '=', True],
             ['state', '!=', 'done'],
@@ -1349,7 +1348,6 @@ def collect_activities_data(start_date: str, end_date: str, user_id: int):
             ['user_id', '=', user_id]
         ])
         
-        # Activités dans les délais
         activites_delais = get_activity_count([
             ['active', '=', True],
             ['state', '!=', 'done'],
@@ -1357,18 +1355,21 @@ def collect_activities_data(start_date: str, end_date: str, user_id: int):
             ['user_id', '=', user_id]
         ])
         
-        # Activités en cours total
         activites_cours_total = get_activity_count([
             ['active', '=', True],
             ['state', '!=', 'done'],
             ['user_id', '=', user_id]
         ])
         
+        # Listes détaillées (nouveau)
+        activites_realisees_details = get_completed_activities_details(start_date, end_date, user_id)
+        
         return {
-            "activites_realisees": activites_realisees,
+            "activites_realisees": activites_realisees_count,
             "activites_retard": activites_retard,
             "activites_delais": activites_delais,
-            "activites_cours_total": activites_cours_total
+            "activites_cours_total": activites_cours_total,
+            "activites_realisees_details": activites_realisees_details
         }
         
     except Exception as e:
@@ -1379,15 +1380,14 @@ def collect_tasks_data(start_date: str, end_date: str, user_id: int):
     try:
         today = datetime.datetime.now().strftime('%Y-%m-%d')
         
-        # Tâches réalisées
-        taches_realisees = get_task_count([
+        # Nombres (comme avant)
+        taches_realisees_count = get_task_count([
             ['user_ids', 'in', [user_id]],
             ['state', '=', '1_done'],
             ['date_last_stage_update', '>=', start_date],
             ['date_last_stage_update', '<=', end_date]
         ])
         
-        # Tâches en retard
         taches_retard = get_task_count([
             ['user_ids', 'in', [user_id]],
             ['state', '=', '01_in_progress'],
@@ -1395,7 +1395,6 @@ def collect_tasks_data(start_date: str, end_date: str, user_id: int):
             ['date_deadline', '<', today]
         ])
         
-        # Tâches dans les délais
         taches_delais = get_task_count([
             ['user_ids', 'in', [user_id]],
             ['state', '=', '01_in_progress'],
@@ -1403,25 +1402,27 @@ def collect_tasks_data(start_date: str, end_date: str, user_id: int):
             ['date_deadline', '>=', today]
         ])
         
-        # Tâches sans délais
         taches_sans_delais = get_task_count([
             ['user_ids', 'in', [user_id]],
             ['state', '=', '01_in_progress'],
             ['date_deadline', '=', False]
         ])
         
-        # Tâches en cours total
         taches_cours_total = get_task_count([
             ['user_ids', 'in', [user_id]],
             ['state', '=', '01_in_progress']
         ])
         
+        # Listes détaillées (nouveau)
+        taches_realisees_details = get_completed_tasks_details(start_date, end_date, user_id)
+        
         return {
-            "taches_realisees": taches_realisees,
+            "taches_realisees": taches_realisees_count,
             "taches_retard": taches_retard,
             "taches_delais": taches_delais,
             "taches_sans_delais": taches_sans_delais,
-            "taches_cours_total": taches_cours_total
+            "taches_cours_total": taches_cours_total,
+            "taches_realisees_details": taches_realisees_details
         }
         
     except Exception as e:
@@ -1432,10 +1433,9 @@ def collect_projects_data(start_date: str, end_date: str, user_id: int):
     try:
         today = datetime.datetime.now().strftime('%Y-%m-%d')
         
-        # Projets réalisés (logique complexe avec project.update)
-        projets_realises = get_completed_projects_count(start_date, end_date, user_id)
+        # Nombres (comme avant)
+        projets_realises_count = get_completed_projects_count(start_date, end_date, user_id)
         
-        # Projets en retard
         projets_retard = get_project_count([
             '|',
             ['user_id', '=', user_id],
@@ -1445,7 +1445,6 @@ def collect_projects_data(start_date: str, end_date: str, user_id: int):
             ['date', '<', today]
         ])
         
-        # Projets dans les délais
         projets_delais = get_project_count([
             '|',
             ['user_id', '=', user_id],
@@ -1455,7 +1454,6 @@ def collect_projects_data(start_date: str, end_date: str, user_id: int):
             ['date', '>=', today]
         ])
         
-        # Projets sans dates
         projets_sans_dates = get_project_count([
             '|',
             ['user_id', '=', user_id],
@@ -1464,7 +1462,6 @@ def collect_projects_data(start_date: str, end_date: str, user_id: int):
             ['date', '=', False]
         ])
         
-        # Projets en cours total
         projets_cours_total = get_project_count([
             '|',
             ['user_id', '=', user_id],
@@ -1472,16 +1469,142 @@ def collect_projects_data(start_date: str, end_date: str, user_id: int):
             ['last_update_status', '!=', 'done']
         ])
         
+        # Listes détaillées (nouveau)
+        projets_realises_details = get_completed_projects_details(start_date, end_date, user_id)
+        
         return {
-            "projets_realises": projets_realises,
+            "projets_realises": projets_realises_count,
             "projets_retard": projets_retard,
             "projets_delais": projets_delais,
             "projets_sans_dates": projets_sans_dates,
-            "projets_cours_total": projets_cours_total
+            "projets_cours_total": projets_cours_total,
+            "projets_realises_details": projets_realises_details
         }
         
     except Exception as e:
         raise Exception(f"Error collecting projects data: {str(e)}")
+
+def get_completed_activities_details(start_date: str, end_date: str, user_id: int):
+    """Get detailed list of completed activities with links"""
+    try:
+        result = odoo_search(
+            model='mail.activity',
+            domain=[
+                ['active', '=', False],
+                ['state', '=', 'done'],
+                ['date_done', '>=', start_date],
+                ['date_done', '<=', end_date], 
+                ['user_id', '=', user_id]
+            ],
+            fields=['id', 'summary', 'date_done', 'res_model', 'res_id'],
+            limit=50
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            activities = []
+            for activity in response.get('records', []):
+                activity_url = f"{ODOO_URL}/web#id={activity['id']}&model=mail.activity&view_type=form"
+                activities.append({
+                    'name': activity.get('summary', 'Activité sans nom'),
+                    'url': activity_url,
+                    'date': activity.get('date_done', '')
+                })
+            return activities
+        return []
+        
+    except Exception as e:
+        raise Exception(f"Error getting completed activities details: {str(e)}")
+
+def get_completed_tasks_details(start_date: str, end_date: str, user_id: int):
+    """Get detailed list of completed tasks with links"""
+    try:
+        result = odoo_search(
+            model='project.task',
+            domain=[
+                ['user_ids', 'in', [user_id]],
+                ['state', '=', '1_done'],
+                ['date_last_stage_update', '>=', start_date],
+                ['date_last_stage_update', '<=', end_date]
+            ],
+            fields=['id', 'name', 'date_last_stage_update', 'project_id'],
+            limit=50
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            tasks = []
+            for task in response.get('records', []):
+                task_url = f"{ODOO_URL}/web#id={task['id']}&model=project.task&view_type=form"
+                tasks.append({
+                    'name': task.get('name', 'Tâche sans nom'),
+                    'url': task_url,
+                    'date': task.get('date_last_stage_update', ''),
+                    'project': task.get('project_id', [False, 'N/A'])[1] if task.get('project_id') else 'N/A'
+                })
+            return tasks
+        return []
+        
+    except Exception as e:
+        raise Exception(f"Error getting completed tasks details: {str(e)}")
+
+def get_completed_projects_details(start_date: str, end_date: str, user_id: int):
+    """Get detailed list of completed projects with links"""
+    try:
+        # Étape 1: Chercher les project.update avec status="done" dans la période
+        updates_result = odoo_search(
+            model='project.update',
+            domain=[
+                ['status', '=', 'done'],
+                ['date', '>=', start_date], 
+                ['date', '<=', end_date]
+            ],
+            fields=['project_id', 'date'],
+            limit=50
+        )
+        
+        updates_response = json.loads(updates_result)
+        if updates_response.get('status') != 'success':
+            return []
+        
+        # Récupérer les IDs des projets avec leur date de completion
+        project_updates = {}
+        for update in updates_response.get('records', []):
+            if update.get('project_id'):
+                project_id = update['project_id'][0]
+                project_updates[project_id] = update.get('date', '')
+        
+        if not project_updates:
+            return []
+        
+        # Étape 2: Récupérer les détails des projets où l'utilisateur participe
+        projects_result = odoo_search(
+            model='project.project',
+            domain=[
+                ['id', 'in', list(project_updates.keys())],
+                '|',
+                ['user_id', '=', user_id],
+                ['favorite_user_ids', 'in', [user_id]]
+            ],
+            fields=['id', 'name'],
+            limit=50
+        )
+        
+        projects_response = json.loads(projects_result)
+        if projects_response.get('status') == 'success':
+            projects = []
+            for project in projects_response.get('records', []):
+                project_url = f"{ODOO_URL}/web#id={project['id']}&model=project.project&view_type=kanban"
+                projects.append({
+                    'name': project.get('name', 'Projet sans nom'),
+                    'url': project_url,
+                    'date': project_updates.get(project['id'], '')
+                })
+            return projects
+        return []
+        
+    except Exception as e:
+        raise Exception(f"Error getting completed projects details: {str(e)}")
 
 def get_activity_count(domain):
     """Get count of mail.activity with given domain"""
@@ -1586,7 +1709,7 @@ def get_completed_projects_count(start_date: str, end_date: str, user_id: int):
         raise Exception(f"Error getting completed projects count: {str(e)}")
 
 def generate_activity_report_html_table(report_data):
-    """Generate HTML table for activity report"""
+    """Generate HTML table for activity report with detailed lists"""
     try:
         user_info = report_data.get('user_info', {})
         activities_data = report_data.get('activities_data', {})
@@ -1609,61 +1732,130 @@ def generate_activity_report_html_table(report_data):
         """
         
         # Section Activités
-        activities_labels = {
-            "activites_realisees": "Activités réalisées",
-            "activites_retard": "Activités en retard",
-            "activites_delais": "Activités dans les délais",
-            "activites_cours_total": "Activités en cours total"
-        }
-        
         html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">ACTIVITÉS</td></tr>'
         
-        for key, value in activities_data.items():
-            label = activities_labels.get(key, key.replace('_', ' ').title())
+        # Nombre d'activités réalisées
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre d'activités réalisées dans la période donnée</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{activities_data.get('activites_realisees', 0)}</td>
+                </tr>
+        """
+        
+        # Liste des activités réalisées
+        activites_details = activities_data.get('activites_realisees_details', [])
+        activites_list = ""
+        if activites_details:
+            activites_list = "<br>".join([f"• <a href='{act['url']}'>{act['name']}</a> ({act['date']})" for act in activites_details])
+        else:
+            activites_list = "Aucune activité réalisée"
+            
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Activités réalisées dans la période donnée</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{activites_list}</td>
+                </tr>
+        """
+        
+        # Autres métriques d'activités
+        activities_labels = {
+            "activites_retard": "Nombre d'activités en retard",
+            "activites_delais": "Nombre d'activités dans les délais", 
+            "activites_cours_total": "Nombre total d'activités en cours"
+        }
+        
+        for key, label in activities_labels.items():
+            value = activities_data.get(key, 0)
             html += f"""
                     <tr>
                         <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
-                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value if value is not None else 0}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value}</td>
                     </tr>
             """
         
         # Section Tâches
-        tasks_labels = {
-            "taches_realisees": "Tâches réalisées",
-            "taches_retard": "Tâches en retard",
-            "taches_delais": "Tâches dans les délais",
-            "taches_sans_delais": "Tâches sans délais",
-            "taches_cours_total": "Tâches en cours total"
-        }
-        
         html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">TÂCHES</td></tr>'
         
-        for key, value in tasks_data.items():
-            label = tasks_labels.get(key, key.replace('_', ' ').title())
+        # Nombre de tâches réalisées
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de tâches réalisées dans la période donnée</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{tasks_data.get('taches_realisees', 0)}</td>
+                </tr>
+        """
+        
+        # Liste des tâches réalisées
+        taches_details = tasks_data.get('taches_realisees_details', [])
+        taches_list = ""
+        if taches_details:
+            taches_list = "<br>".join([f"• <a href='{task['url']}'>{task['name']}</a> - {task['project']} ({task['date']})" for task in taches_details])
+        else:
+            taches_list = "Aucune tâche réalisée"
+            
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Tâches réalisées dans la période donnée</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{taches_list}</td>
+                </tr>
+        """
+        
+        # Autres métriques de tâches
+        tasks_labels = {
+            "taches_retard": "Nombre de tâches en retard",
+            "taches_delais": "Nombre de tâches dans les délais",
+            "taches_sans_delais": "Nombre de tâches sans délais",
+            "taches_cours_total": "Nombre total de tâches en cours"
+        }
+        
+        for key, label in tasks_labels.items():
+            value = tasks_data.get(key, 0)
             html += f"""
                     <tr>
                         <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
-                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value if value is not None else 0}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value}</td>
                     </tr>
             """
         
         # Section Projets
-        projects_labels = {
-            "projets_realises": "Projets réalisés",
-            "projets_retard": "Projets en retard",
-            "projets_delais": "Projets dans les délais",
-            "projets_sans_dates": "Projets sans dates",
-            "projets_cours_total": "Projets en cours total"
-        }
-        
         html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">PROJETS</td></tr>'
         
-        for key, value in projects_data.items():
-            label = projects_labels.get(key, key.replace('_', ' ').title())
+        # Nombre de projets réalisés
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de projets réalisés dans la période donnée</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{projects_data.get('projets_realises', 0)}</td>
+                </tr>
+        """
+        
+        # Liste des projets réalisés
+        projets_details = projects_data.get('projets_realises_details', [])
+        projets_list = ""
+        if projets_details:
+            projets_list = "<br>".join([f"• <a href='{proj['url']}'>{proj['name']}</a> ({proj['date']})" for proj in projets_details])
+        else:
+            projets_list = "Aucun projet réalisé"
+            
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Projets réalisés dans la période donnée</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{projets_list}</td>
+                </tr>
+        """
+        
+        # Autres métriques de projets
+        projects_labels = {
+            "projets_retard": "Nombre de projets en retard",
+            "projets_delais": "Nombre de projets dans les délais",
+            "projets_sans_dates": "Nombre de projets sans dates",
+            "projets_cours_total": "Nombre total de projets en cours"
+        }
+        
+        for key, label in projects_labels.items():
+            value = projects_data.get(key, 0)
             html += f"""
                     <tr>
                         <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
-                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value if value is not None else 0}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value}</td>
                     </tr>
             """
         
