@@ -1,0 +1,137 @@
+Ligne,Critères,Domaine
+Activités réalisées,"Addition de toutes les activités :
+- Terminées (marquées comme faites)
+- Dont la date de réalisation est dans la période donnée
+- Assignées à l'utilisateur concerné par le rapport","domain = [
+    ['active', '=', False],
+    ['state', '=', 'done'],
+    ['date_done', '>=', start_date],
+    ['date_done', '<=', end_date], 
+    ['user_id', '=', user_id]
+]"
+Activités en retard,"Addition de toutes les activités :
+- En cours (non terminées)
+- Dont la date d'échéance est dépassée (antérieure à aujourd'hui)
+- Assignées à l'utilisateur concerné par le rapport","domain = [
+    ['active', '=', True],           # En cours
+    ['state', '!=', 'done'],        # Pas terminées
+    ['date_deadline', '<', today],   # Échéance dépassée
+    ['user_id', '=', user_id]       # Assignées à l'utilisateur
+]"
+Activités dans les délais,"Addition de toutes les activités :
+- En cours (non terminées)
+- Dont la date d'échéance est future ou égale à aujourd'hui
+- Assignées à l'utilisateur concerné par le rapport","domain = [
+    ['active', '=', True],           # En cours
+    ['state', '!=', 'done'],        # Pas terminées
+    ['date_deadline', '>=', today],  # Échéance respectée
+    ['user_id', '=', user_id]       # Assignées à l'utilisateur
+]"
+Activités en cours total,"Addition de toutes les activités :
+- En cours (non terminées)
+- Assignées à l'utilisateur concerné par le rapport","domain = [
+    ['active', '=', True],           # En cours
+    ['state', '!=', 'done'],        # Pas terminées
+    ['user_id', '=', user_id]       # Assignées à l'utilisateur
+]"
+Tâches réalisées,"Addition de toutes les tâches :
+- Tâches assignées à l'utilisateur concerné
+- État = ""Terminé"" (1_done)
+- Date de changement d'état dans la période donnée","[
+    ('user_ids', 'in', [user_id]),
+    ('state', '=', '1_done'),
+    ('date_last_stage_update', '>=', start_date),
+    ('date_last_stage_update', '<=', end_date)
+]"
+Tâches en retard,"Addition de toutes les tâches :
+- Assignées à l'utilisateur concerné
+- État = ""En cours"" (01_in_progress)
+- Ont une date limite définie
+- Date limite dépassée (inférieure à aujourd'hui)","[
+    ('user_ids', 'in', [user_id]),
+    ('state', '=', '01_in_progress'),
+    ('date_deadline', '!=', False),
+    ('date_deadline', '<', datetime.now().strftime('%Y-%m-%d'))
+]"
+Tâches dans les délais,"Addition de toutes les tâches :
+- Assignées à l'utilisateur concerné
+- État = ""En cours"" (01_in_progress)
+- Date limite non dépassée (supérieure ou égale à aujourd'hui)","[
+    ('user_ids', 'in', [user_id]),
+    ('state', '=', '01_in_progress'),
+    ('date_deadline', '!=', False),
+    ('date_deadline', '>=', datetime.now().strftime('%Y-%m-%d'))
+]"
+Tâches sans délais,"Addition de toutes les tâches :
+- Assignées à l'utilisateur concerné
+- État = ""En cours"" (01_in_progress)
+- N'ont pas de date limite définie","[
+    ('user_ids', 'in', [user_id]),
+    ('state', '=', '01_in_progress'),
+    ('date_deadline', '=', False)
+]"
+Tâches en cours total,"Addition de toutes les tâches :
+- Assignées à l'utilisateur concerné
+- État = ""En cours"" (01_in_progress)
+- Ont une date limite définie
+- Date limite non dépassée (supérieure ou égale à aujourd'hui)","[
+    ('user_ids', 'in', [user_id]),
+    ('state', '=', '01_in_progress')
+]"
+Projets réalisés,"Addition de tous les projets :
+- Dont l'utilisateur concerné est manager (user_id) OU membre (favorite_user_ids)
+- Dont le dernier project.update créé dans la période donnée a le status = ""done""","# Étape 1: Trouver les project.update avec status=""done"" dans la période
+updates_domain = [
+    ['status', '=', 'done'],
+    ['date', '>=', start_date], 
+    ['date', '<=', end_date]
+]
+
+# Étape 2: Pour chaque projet trouvé, vérifier que l'utilisateur y participe
+projects_domain = [
+    '|',
+    ['user_id', '=', user_id],
+    ['favorite_user_ids', 'in', [user_id]]
+]"
+Projets en retard,"Addition de tous les projets :
+- Dont l'utilisateur concerné est manager (user_id) OU membre (favorite_user_ids)
+- État en cours (last_update_status != ""done"")
+- Ont une date d'expiration définie
+- Date d'expiration dépassée (inférieure à aujourd'hui)","[
+    '|',
+    ['user_id', '=', user_id],
+    ['favorite_user_ids', 'in', [user_id]],
+    ['last_update_status', '!=', 'done'],
+    ['date', '!=', False],
+    ['date', '<', datetime.now().strftime('%Y-%m-%d')]
+]"
+Projets dans les délais,"Addition de tous les projets :
+- Dont l'utilisateur concerné est manager (user_id) OU membre (favorite_user_ids)
+- État en cours (last_update_status != ""done"")
+- Ont une date d'expiration définie
+- Date d'expiration non dépassée (supérieure ou égale à aujourd'hui)","[
+    '|',
+    ['user_id', '=', user_id],
+    ['favorite_user_ids', 'in', [user_id]],
+    ['last_update_status', '!=', 'done'],
+    ['date', '!=', False],
+    ['date', '>=', datetime.now().strftime('%Y-%m-%d')]
+]"
+Projets sans dates,"Addition de tous les projets :
+- Dont l'utilisateur concerné est manager (user_id) OU membre (favorite_user_ids)
+- État en cours (last_update_status != ""done"")
+- N'ont pas de date d'expiration définie","[
+    '|',
+    ['user_id', '=', user_id],
+    ['favorite_user_ids', 'in', [user_id]],
+    ['last_update_status', '!=', 'done'],
+    ['date', '=', False]
+]"
+Projets en cours total,"Addition de tous les projets :
+- Dont l'utilisateur concerné est manager (user_id) OU membre (favorite_user_ids)
+- État en cours (last_update_status != ""done""","[
+    '|',
+    ['user_id', '=', user_id],
+    ['favorite_user_ids', 'in', [user_id]],
+    ['last_update_status', '!=', 'done']
+]"

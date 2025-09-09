@@ -1239,3 +1239,482 @@ def create_report_task(report_data, project_id, task_column_id):
 if __name__ == "__main__":
     # Run the server with SSE transport
     mcp.run(transport="sse")
+
+@mcp.tool()
+def odoo_activity_report(
+    user_id: int,
+    start_date: str, 
+    end_date: str,
+    project_id: int,
+    task_column_id: int
+) -> str:
+    """
+    Generate a comprehensive activity report for a user over a specified period.
+    Collects activities, tasks, and projects data from Odoo and creates a task with the report.
+    
+    Args:
+        user_id: ID of the Odoo user to generate report for
+        start_date: Start date in ISO format (YYYY-MM-DD)
+        end_date: End date in ISO format (YYYY-MM-DD)
+        project_id: ID of the project where the report task will be created
+        task_column_id: ID of the task column/stage where the report will be placed
+    
+    Returns:
+        JSON string with the complete activity report data
+    """
+    try:
+        # Validate date format
+        try:
+            datetime.datetime.fromisoformat(start_date)
+            datetime.datetime.fromisoformat(end_date)
+        except ValueError:
+            return json.dumps({
+                "status": "error",
+                "message": "Invalid date format. Use YYYY-MM-DD format."
+            })
+        
+        # Validate that start_date is before end_date
+        if start_date >= end_date:
+            return json.dumps({
+                "status": "error", 
+                "message": "start_date must be before end_date"
+            })
+        
+        # Test Odoo connection first
+        models, uid = get_odoo_connection()
+        
+        # Verify user exists
+        user_check = odoo_search(
+            model='res.users',
+            domain=[['id', '=', user_id]],
+            fields=['name'],
+            limit=1
+        )
+        user_response = json.loads(user_check)
+        if not (user_response.get('status') == 'success' and user_response.get('records')):
+            return json.dumps({
+                "status": "error",
+                "message": f"User with ID {user_id} not found"
+            })
+        
+        user_name = user_response['records'][0]['name']
+        
+        # Collect all report data
+        report_data = {
+            "user_info": {
+                "user_id": user_id,
+                "user_name": user_name,
+                "start_date": start_date,
+                "end_date": end_date
+            },
+            "activities_data": collect_activities_data(start_date, end_date, user_id),
+            "tasks_data": collect_tasks_data(start_date, end_date, user_id),
+            "projects_data": collect_projects_data(start_date, end_date, user_id)
+        }
+        
+        # Create task with formatted report
+        task_id = create_activity_report_task(report_data, project_id, task_column_id)
+        
+        return json.dumps({
+            "status": "success",
+            "message": f"Activity report generated successfully for {user_name}",
+            "period": f"{start_date} to {end_date}",
+            "task_id": task_id,
+            "task_name": f"Rapport d'activité - {user_name} ({start_date} au {end_date})",
+            "report_data": report_data,
+            "timestamp": datetime.datetime.now().isoformat()
+        }, indent=2)
+        
+    except Exception as e:
+        return json.dumps({
+            "status": "error",
+            "message": f"Error generating activity report: {str(e)}"
+        })
+
+def collect_activities_data(start_date: str, end_date: str, user_id: int):
+    """Collect all activities data for the report"""
+    try:
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # Activités réalisées
+        activites_realisees = get_activity_count([
+            ['active', '=', False],
+            ['state', '=', 'done'],
+            ['date_done', '>=', start_date],
+            ['date_done', '<=', end_date], 
+            ['user_id', '=', user_id]
+        ])
+        
+        # Activités en retard
+        activites_retard = get_activity_count([
+            ['active', '=', True],
+            ['state', '!=', 'done'],
+            ['date_deadline', '<', today],
+            ['user_id', '=', user_id]
+        ])
+        
+        # Activités dans les délais
+        activites_delais = get_activity_count([
+            ['active', '=', True],
+            ['state', '!=', 'done'],
+            ['date_deadline', '>=', today],
+            ['user_id', '=', user_id]
+        ])
+        
+        # Activités en cours total
+        activites_cours_total = get_activity_count([
+            ['active', '=', True],
+            ['state', '!=', 'done'],
+            ['user_id', '=', user_id]
+        ])
+        
+        return {
+            "activites_realisees": activites_realisees,
+            "activites_retard": activites_retard,
+            "activites_delais": activites_delais,
+            "activites_cours_total": activites_cours_total
+        }
+        
+    except Exception as e:
+        raise Exception(f"Error collecting activities data: {str(e)}")
+
+def collect_tasks_data(start_date: str, end_date: str, user_id: int):
+    """Collect all tasks data for the report"""
+    try:
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # Tâches réalisées
+        taches_realisees = get_task_count([
+            ['user_ids', 'in', [user_id]],
+            ['state', '=', '1_done'],
+            ['date_last_stage_update', '>=', start_date],
+            ['date_last_stage_update', '<=', end_date]
+        ])
+        
+        # Tâches en retard
+        taches_retard = get_task_count([
+            ['user_ids', 'in', [user_id]],
+            ['state', '=', '01_in_progress'],
+            ['date_deadline', '!=', False],
+            ['date_deadline', '<', today]
+        ])
+        
+        # Tâches dans les délais
+        taches_delais = get_task_count([
+            ['user_ids', 'in', [user_id]],
+            ['state', '=', '01_in_progress'],
+            ['date_deadline', '!=', False],
+            ['date_deadline', '>=', today]
+        ])
+        
+        # Tâches sans délais
+        taches_sans_delais = get_task_count([
+            ['user_ids', 'in', [user_id]],
+            ['state', '=', '01_in_progress'],
+            ['date_deadline', '=', False]
+        ])
+        
+        # Tâches en cours total
+        taches_cours_total = get_task_count([
+            ['user_ids', 'in', [user_id]],
+            ['state', '=', '01_in_progress']
+        ])
+        
+        return {
+            "taches_realisees": taches_realisees,
+            "taches_retard": taches_retard,
+            "taches_delais": taches_delais,
+            "taches_sans_delais": taches_sans_delais,
+            "taches_cours_total": taches_cours_total
+        }
+        
+    except Exception as e:
+        raise Exception(f"Error collecting tasks data: {str(e)}")
+
+def collect_projects_data(start_date: str, end_date: str, user_id: int):
+    """Collect all projects data for the report"""
+    try:
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # Projets réalisés (logique complexe avec project.update)
+        projets_realises = get_completed_projects_count(start_date, end_date, user_id)
+        
+        # Projets en retard
+        projets_retard = get_project_count([
+            '|',
+            ['user_id', '=', user_id],
+            ['favorite_user_ids', 'in', [user_id]],
+            ['last_update_status', '!=', 'done'],
+            ['date', '!=', False],
+            ['date', '<', today]
+        ])
+        
+        # Projets dans les délais
+        projets_delais = get_project_count([
+            '|',
+            ['user_id', '=', user_id],
+            ['favorite_user_ids', 'in', [user_id]],
+            ['last_update_status', '!=', 'done'],
+            ['date', '!=', False],
+            ['date', '>=', today]
+        ])
+        
+        # Projets sans dates
+        projets_sans_dates = get_project_count([
+            '|',
+            ['user_id', '=', user_id],
+            ['favorite_user_ids', 'in', [user_id]],
+            ['last_update_status', '!=', 'done'],
+            ['date', '=', False]
+        ])
+        
+        # Projets en cours total
+        projets_cours_total = get_project_count([
+            '|',
+            ['user_id', '=', user_id],
+            ['favorite_user_ids', 'in', [user_id]],
+            ['last_update_status', '!=', 'done']
+        ])
+        
+        return {
+            "projets_realises": projets_realises,
+            "projets_retard": projets_retard,
+            "projets_delais": projets_delais,
+            "projets_sans_dates": projets_sans_dates,
+            "projets_cours_total": projets_cours_total
+        }
+        
+    except Exception as e:
+        raise Exception(f"Error collecting projects data: {str(e)}")
+
+def get_activity_count(domain):
+    """Get count of mail.activity with given domain"""
+    try:
+        result = odoo_search(
+            model='mail.activity',
+            domain=domain,
+            fields=['id']
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('returned_count', 0)
+        else:
+            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        raise Exception(f"Error getting activity count: {str(e)}")
+
+def get_task_count(domain):
+    """Get count of project.task with given domain"""
+    try:
+        result = odoo_search(
+            model='project.task',
+            domain=domain,
+            fields=['id']
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('returned_count', 0)
+        else:
+            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        raise Exception(f"Error getting task count: {str(e)}")
+
+def get_project_count(domain):
+    """Get count of project.project with given domain"""
+    try:
+        result = odoo_search(
+            model='project.project',
+            domain=domain,
+            fields=['id']
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('returned_count', 0)
+        else:
+            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        raise Exception(f"Error getting project count: {str(e)}")
+
+def get_completed_projects_count(start_date: str, end_date: str, user_id: int):
+    """Get count of projects completed in period (complex logic with project.update)"""
+    try:
+        # Étape 1: Chercher les project.update avec status="done" dans la période
+        updates_result = odoo_search(
+            model='project.update',
+            domain=[
+                ['status', '=', 'done'],
+                ['date', '>=', start_date], 
+                ['date', '<=', end_date]
+            ],
+            fields=['project_id']
+        )
+        
+        updates_response = json.loads(updates_result)
+        if updates_response.get('status') != 'success':
+            raise Exception(f"Updates search failed: {updates_response.get('error', 'Unknown error')}")
+        
+        # Récupérer les IDs des projets
+        project_ids = []
+        for update in updates_response.get('records', []):
+            if update.get('project_id'):
+                project_ids.append(update['project_id'][0])
+        
+        if not project_ids:
+            return 0
+        
+        # Étape 2: Vérifier que l'utilisateur participe à ces projets
+        completed_projects_result = odoo_search(
+            model='project.project',
+            domain=[
+                ['id', 'in', project_ids],
+                '|',
+                ['user_id', '=', user_id],
+                ['favorite_user_ids', 'in', [user_id]]
+            ],
+            fields=['id']
+        )
+        
+        completed_response = json.loads(completed_projects_result)
+        if completed_response.get('status') == 'success':
+            return completed_response.get('returned_count', 0)
+        else:
+            raise Exception(f"Projects search failed: {completed_response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        raise Exception(f"Error getting completed projects count: {str(e)}")
+
+def generate_activity_report_html_table(report_data):
+    """Generate HTML table for activity report"""
+    try:
+        user_info = report_data.get('user_info', {})
+        activities_data = report_data.get('activities_data', {})
+        tasks_data = report_data.get('tasks_data', {})
+        projects_data = report_data.get('projects_data', {})
+        
+        html = f"""
+        <div class="container">
+            <h2>Rapport d'activité - {user_info.get('user_name', 'N/A')}</h2>
+            <p><strong>Période:</strong> {user_info.get('start_date', 'N/A')} au {user_info.get('end_date', 'N/A')}</p>
+            
+            <table class="table table-bordered table-striped" style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                <thead style="background-color: #f8f9fa;">
+                    <tr>
+                        <th style="border: 1px solid #dee2e6; padding: 12px; text-align: left; font-weight: bold;">Métrique</th>
+                        <th style="border: 1px solid #dee2e6; padding: 12px; text-align: right; font-weight: bold;">Valeur</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        # Section Activités
+        activities_labels = {
+            "activites_realisees": "Activités réalisées",
+            "activites_retard": "Activités en retard",
+            "activites_delais": "Activités dans les délais",
+            "activites_cours_total": "Activités en cours total"
+        }
+        
+        html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">ACTIVITÉS</td></tr>'
+        
+        for key, value in activities_data.items():
+            label = activities_labels.get(key, key.replace('_', ' ').title())
+            html += f"""
+                    <tr>
+                        <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value if value is not None else 0}</td>
+                    </tr>
+            """
+        
+        # Section Tâches
+        tasks_labels = {
+            "taches_realisees": "Tâches réalisées",
+            "taches_retard": "Tâches en retard",
+            "taches_delais": "Tâches dans les délais",
+            "taches_sans_delais": "Tâches sans délais",
+            "taches_cours_total": "Tâches en cours total"
+        }
+        
+        html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">TÂCHES</td></tr>'
+        
+        for key, value in tasks_data.items():
+            label = tasks_labels.get(key, key.replace('_', ' ').title())
+            html += f"""
+                    <tr>
+                        <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value if value is not None else 0}</td>
+                    </tr>
+            """
+        
+        # Section Projets
+        projects_labels = {
+            "projets_realises": "Projets réalisés",
+            "projets_retard": "Projets en retard",
+            "projets_delais": "Projets dans les délais",
+            "projets_sans_dates": "Projets sans dates",
+            "projets_cours_total": "Projets en cours total"
+        }
+        
+        html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">PROJETS</td></tr>'
+        
+        for key, value in projects_data.items():
+            label = projects_labels.get(key, key.replace('_', ' ').title())
+            html += f"""
+                    <tr>
+                        <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value if value is not None else 0}</td>
+                    </tr>
+            """
+        
+        html += """
+                </tbody>
+            </table>
+        </div>
+        """
+        
+        return html
+        
+    except Exception as e:
+        raise Exception(f"Error generating HTML table: {str(e)}")
+
+def create_activity_report_task(report_data, project_id, task_column_id):
+    """Create an Odoo task with the activity report"""
+    try:
+        user_info = report_data.get('user_info', {})
+        user_name = user_info.get('user_name', 'N/A')
+        start_date = user_info.get('start_date', 'N/A')
+        end_date = user_info.get('end_date', 'N/A')
+        
+        # Generate task title
+        task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
+        
+        # Generate HTML table
+        html_description = generate_activity_report_html_table(report_data)
+        
+        # Create task using odoo_execute
+        result = odoo_execute(
+            model='project.task',
+            method='create',
+            args=[{
+                'name': task_name,
+                'project_id': project_id,
+                'stage_id': task_column_id,
+                'description': html_description,
+                'user_ids': [(4, user_info.get('user_id'))]  # Assign to the user
+            }]
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            task_id = response.get('result')
+            return task_id
+        else:
+            raise Exception(f"Task creation failed: {response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        raise Exception(f"Error creating activity report task: {str(e)}")
