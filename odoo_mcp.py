@@ -1198,17 +1198,14 @@ def collect_top_clients_data(user_ids: List[int]):
 
 def format_currency(amount):
     """
-    Format amount as currency
-    
-    Args:
-        amount: Numeric amount
-    
-    Returns:
-        Formatted string with € symbol
+    Format amount as currency - CORRIGÉ pour gérer None
     """
     if amount is None or amount == 0:
         return "0 €"
-    return f"{amount:,.0f} €".replace(",", " ")
+    try:
+        return f"{float(amount):,.0f} €".replace(",", " ")
+    except (ValueError, TypeError):
+        return "0 €"
 
 def generate_report_html_table(report_data):
     """
@@ -1357,38 +1354,40 @@ def generate_report_html_table(report_data):
 def create_report_task(report_data, project_id, task_column_id):
     """
     Create an Odoo task with the business report
-    
-    Args:
-        report_data: Complete report data dictionary
-        project_id: ID of the project
-        task_column_id: ID of the task column/stage
-    
-    Returns:
-        Created task ID
+    CORRIGÉ pour gérer les valeurs None et la nouvelle structure user_info
     """
     try:
         user_info = report_data.get('user_info', {})
-        user_name = user_info.get('user_name', 'N/A')
+        # CORRIGÉ: utiliser combined_user_name au lieu de user_name
+        combined_user_name = user_info.get('combined_user_name', 'N/A')
         start_date = user_info.get('start_date', 'N/A')
         end_date = user_info.get('end_date', 'N/A')
+        user_ids = user_info.get('user_ids', [])
         
         # Generate task title
-        task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
+        task_name = f"Rapport d'activité - {combined_user_name} ({start_date} au {end_date})"
         
         # Generate HTML table
         html_description = generate_report_html_table(report_data)
+        
+        # CORRIGÉ: s'assurer qu'aucune valeur None n'est passée
+        task_data = {
+            'name': task_name,
+            'project_id': project_id,
+            'stage_id': task_column_id,
+            'description': html_description,
+        }
+        
+        # Ajouter les assignés seulement s'il y en a
+        if user_ids:
+            # Assigner à tous les utilisateurs du rapport
+            task_data['user_ids'] = [(4, uid) for uid in user_ids if uid is not None]
         
         # Create task using odoo_execute
         result = odoo_execute(
             model='project.task',
             method='create',
-            args=[{
-                'name': task_name,
-                'project_id': project_id,
-                'stage_id': task_column_id,
-                'description': html_description,
-                'user_ids': [(4, user_info.get('user_id'))]  # Assign to the user
-            }]
+            args=[task_data]
         )
         
         response = json.loads(result)
