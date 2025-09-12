@@ -656,9 +656,105 @@ def get_company_revenue(company_id: int, start_date: str, end_date: str, user_id
     except Exception as e:
         raise Exception(f"Error calculating revenue: {str(e)}")
 
+def get_company_invoices_revenue(company_id: int, start_date: str, end_date: str, user_id: int, with_opportunities=None):
+    """
+    Fonction pour calculer le CA facturé (account.move) basé sur les opportunités
+    
+    Args:
+        company_id: ID of the company
+        start_date: Start date in ISO format
+        end_date: End date in ISO format  
+        user_id: ID of the user/salesperson
+        with_opportunities: True for invoices WITH opportunities, False for WITHOUT, None for ALL
+    
+    Returns:
+        Total invoiced revenue amount
+    """
+    try:
+        # Build domain for account.move (invoices)
+        domain = [
+            ['company_id', '=', company_id],
+            ['invoice_date', '>=', start_date],
+            ['invoice_date', '<=', end_date],
+            ['invoice_user_id', '=', user_id],
+            ['move_type', '=', 'out_invoice'],  # Only customer invoices
+            ['state', '=', 'posted']  # Only validated invoices
+        ]
+        
+        # Add opportunities filter
+        if with_opportunities is True:
+            # For invoices with opportunities - check if related sale order has opportunity
+            domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '!=', False])
+        elif with_opportunities is False:
+            # For invoices without opportunities - check if related sale order has NO opportunity
+            domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '=', False])
+        # If None, no opportunity filter (total invoiced)
+        
+        # Search invoices
+        result = odoo_search(
+            model='account.move',
+            domain=domain,
+            fields=['amount_total'],
+            limit=100  # Should be enough for weekly reports
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            records = response.get('records', [])
+            total_revenue = sum(record.get('amount_total', 0) for record in records)
+            return total_revenue
+        else:
+            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        raise Exception(f"Error calculating invoiced revenue: {str(e)}")
+
+def get_company_orders_revenue(company_id: int, start_date: str, end_date: str, user_id: int):
+    """
+    Fonction pour calculer le CA commandé (sale.order) NON ENCORE FACTURÉ
+    
+    Args:
+        company_id: ID of the company
+        start_date: Start date in ISO format
+        end_date: End date in ISO format  
+        user_id: ID of the user/salesperson
+    
+    Returns:
+        Total ordered (not yet invoiced) revenue amount
+    """
+    try:
+        # Build domain for sale.order (orders not fully invoiced)
+        domain = [
+            ['company_id', '=', company_id],
+            ['date_order', '>=', start_date],
+            ['date_order', '<=', end_date],
+            ['user_id', '=', user_id],
+            ['invoice_status', '!=', 'invoiced']  # Not fully invoiced to avoid double counting
+        ]
+        
+        # Search orders
+        result = odoo_search(
+            model='sale.order',
+            domain=domain,
+            fields=['amount_total'],
+            limit=100  # Should be enough for weekly reports
+        )
+        
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            records = response.get('records', [])
+            total_revenue = sum(record.get('amount_total', 0) for record in records)
+            return total_revenue
+        else:
+            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        raise Exception(f"Error calculating ordered revenue: {str(e)}")
+
 def collect_revenue_data(start_date: str, end_date: str, user_id: int):
     """
     Collect all revenue data for the business report using dynamic company detection
+    NOUVELLE VERSION avec 4 métriques distinctes par société
     
     Args:
         start_date: Start date in ISO format
@@ -690,13 +786,17 @@ def collect_revenue_data(start_date: str, end_date: str, user_id: int):
         for company_id in company_ids:
             company_key = get_company_name(company_id)
             
-            revenue_data[f"ca_{company_key}_with_rdv"] = get_company_revenue(
+            # 4 nouvelles métriques avec noms corrects
+            revenue_data[f"ca_facture_{company_key}_avec_rdv"] = get_company_invoices_revenue(
                 company_id, start_date, end_date, user_id, with_opportunities=True
             )
-            revenue_data[f"ca_{company_key}_without_rdv"] = get_company_revenue(
+            revenue_data[f"ca_facture_{company_key}_sans_rdv"] = get_company_invoices_revenue(
                 company_id, start_date, end_date, user_id, with_opportunities=False
             )
-            revenue_data[f"ca_{company_key}_total"] = get_company_revenue(
+            revenue_data[f"ca_commande_{company_key}_total"] = get_company_orders_revenue(
+                company_id, start_date, end_date, user_id
+            )
+            revenue_data[f"ca_facture_{company_key}_total"] = get_company_invoices_revenue(
                 company_id, start_date, end_date, user_id, with_opportunities=None
             )
         
@@ -1080,12 +1180,7 @@ def format_currency(amount):
 def generate_report_html_table(report_data):
     """
     Generate HTML table for business report in Odoo WYSIWYG format
-    
-    Args:
-        report_data: Complete report data dictionary
-    
-    Returns:
-        HTML string with formatted table
+    MISE À JOUR avec les nouveaux noms de métriques CA
     """
     try:
         user_info = report_data.get('user_info', {})
@@ -1108,20 +1203,24 @@ def generate_report_html_table(report_data):
                 <tbody>
         """
         
-        # Revenue section
+        # Revenue section avec nouveaux noms
         for key, value in revenue_data.items():
-            if key.endswith('_total'):
-                company_name = key.replace('ca_', '').replace('_total', '').title()
-                label = f"CA {company_name} Total"
+            if key.startswith('ca_facture_') and key.endswith('_avec_rdv'):
+                company_name = key.replace('ca_facture_', '').replace('_avec_rdv', '').title()
+                label = f"Chiffre d'affaires des factures de {company_name} réalisé suite à des rendez-vous"
+                style = ""
+            elif key.startswith('ca_facture_') and key.endswith('_sans_rdv'):
+                company_name = key.replace('ca_facture_', '').replace('_sans_rdv', '').title()
+                label = f"Chiffre d'affaires des factures de {company_name} réalisé sans rendez-vous"
+                style = ""
+            elif key.startswith('ca_commande_') and key.endswith('_total'):
+                company_name = key.replace('ca_commande_', '').replace('_total', '').title()
+                label = f"Chiffre d'affaires {company_name} Total Commandé"
+                style = ""
+            elif key.startswith('ca_facture_') and key.endswith('_total'):
+                company_name = key.replace('ca_facture_', '').replace('_total', '').title()
+                label = f"Chiffre d'affaires {company_name} Total Facturé"
                 style = "background-color: #e9ecef; font-weight: bold;"
-            elif key.endswith('_with_rdv'):
-                company_name = key.replace('ca_', '').replace('_with_rdv', '').title()
-                label = f"CA {company_name} avec RDV"
-                style = ""
-            elif key.endswith('_without_rdv'):
-                company_name = key.replace('ca_', '').replace('_without_rdv', '').title()
-                label = f"CA {company_name} sans RDV"
-                style = ""
             else:
                 label = key.replace('_', ' ').title()
                 style = ""
@@ -1133,6 +1232,7 @@ def generate_report_html_table(report_data):
                     </tr>
             """
         
+        # Le reste reste identique...
         # Metrics section
         metrics_labels = {
             "rdv_places": "Rendez-vous placés",
@@ -1153,7 +1253,7 @@ def generate_report_html_table(report_data):
                     </tr>
             """
         
-        # Top clients section
+        # Top clients section (reste identique)
         top_labels = {
             "top_1": "Top 1",
             "top_2": "Top 2",
@@ -1188,6 +1288,7 @@ def generate_report_html_table(report_data):
         
     except Exception as e:
         raise Exception(f"Error generating HTML table: {str(e)}")
+    
 
 def create_report_task(report_data, project_id, task_column_id):
     """
