@@ -1213,7 +1213,7 @@ def format_currency(amount):
 def generate_report_html_table(report_data):
     """
     Generate HTML table for business report in Odoo WYSIWYG format
-    MODIFIÉ pour inclure les métriques individuelles
+    MODIFIÉ pour inclure les lignes vides pour relances et paiements
     """
     try:
         user_info = report_data.get('user_info', {})
@@ -1285,7 +1285,7 @@ def generate_report_html_table(report_data):
                     </tr>
             """
         
-        # Section métriques INDIVIDUELLES (nouveau)
+        # Section métriques INDIVIDUELLES
         individual_metrics = {
             "rdv_places_individual": "Nombre de rendez-vous placés",
             "nombre_commandes_individual": "Nombre de commandes", 
@@ -1305,6 +1305,18 @@ def generate_report_html_table(report_data):
                                 <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{count}</td>
                             </tr>
                     """
+        
+        # NOUVEAU: Section lignes vides pour saisie manuelle
+        html += f"""
+                <tr style="background-color: #fff3cd;">
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de relances impayés faites</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right; font-style: italic; color: #6c757d;">À remplir</td>
+                </tr>
+                <tr style="background-color: #fff3cd;">
+                    <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de paiements récupérés</td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right; font-style: italic; color: #6c757d;">À remplir</td>
+                </tr>
+        """
         
         # Section Top clients (AGRÉGÉ - reste identique)
         top_labels = {
