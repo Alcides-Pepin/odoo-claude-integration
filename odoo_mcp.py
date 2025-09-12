@@ -6,6 +6,7 @@ import socket
 import time
 from typing import Any, List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
+from typing import List
 
 # Get port from environment variable (Railway/Render sets this, defaults to 8001 for local dev)
 PORT = int(os.environ.get("PORT", 8001))
@@ -468,18 +469,18 @@ def odoo_execute(
 
 @mcp.tool()
 def odoo_business_report(
-    user_id: int,
+    user_ids: List[int],  # CHANGÉ: maintenant une liste
     start_date: str, 
     end_date: str,
     project_id: int,
     task_column_id: int
 ) -> str:
     """
-    Generate a comprehensive business report for a user over a specified period.
+    Generate a comprehensive business report for multiple users over a specified period.
     Collects revenue, metrics, and top clients data from Odoo and creates a task with the report.
     
     Args:
-        user_id: ID of the Odoo user/salesperson to generate report for
+        user_ids: List of IDs of Odoo users/salespersons to generate report for
         start_date: Start date in ISO format (YYYY-MM-DD)
         end_date: End date in ISO format (YYYY-MM-DD)
         project_id: ID of the project where the report task will be created
@@ -489,6 +490,13 @@ def odoo_business_report(
         JSON string with the complete business report data
     """
     try:
+        # Validate input
+        if not user_ids or not isinstance(user_ids, list):
+            return json.dumps({
+                "status": "error",
+                "message": "user_ids must be a non-empty list"
+            })
+        
         # Validate date format
         try:
             datetime.datetime.fromisoformat(start_date)
@@ -509,33 +517,38 @@ def odoo_business_report(
         # Test Odoo connection first
         models, uid = get_odoo_connection()
         
-        # Verify user exists
-        user_check = odoo_search(
-            model='res.users',
-            domain=[['id', '=', user_id]],
-            fields=['name'],
-            limit=1
-        )
-        user_response = json.loads(user_check)
-        if not (user_response.get('status') == 'success' and user_response.get('records')):
-            return json.dumps({
-                "status": "error",
-                "message": f"User with ID {user_id} not found"
-            })
+        # Verify ALL users exist and get their names
+        user_names = []
+        for user_id in user_ids:
+            user_check = odoo_search(
+                model='res.users',
+                domain=[['id', '=', user_id]],
+                fields=['name'],
+                limit=1
+            )
+            user_response = json.loads(user_check)
+            if not (user_response.get('status') == 'success' and user_response.get('records')):
+                return json.dumps({
+                    "status": "error",
+                    "message": f"User with ID {user_id} not found"
+                })
+            user_names.append(user_response['records'][0]['name'])
         
-        user_name = user_response['records'][0]['name']
+        # Create combined user info
+        combined_user_name = ", ".join(user_names)
         
-        # Collect all report data
+        # Collect all report data (AGRÉGÉ pour tous les utilisateurs)
         report_data = {
             "user_info": {
-                "user_id": user_id,
-                "user_name": user_name,
+                "user_ids": user_ids,
+                "user_names": user_names,
+                "combined_user_name": combined_user_name,
                 "start_date": start_date,
                 "end_date": end_date
             },
-            "revenue_data": collect_revenue_data(start_date, end_date, user_id),
-            "metrics_data": collect_metrics_data(start_date, end_date, user_id),
-            "top_clients_data": collect_top_clients_data(user_id)
+            "revenue_data": collect_revenue_data(start_date, end_date, user_ids),  # CHANGÉ: user_ids
+            "metrics_data": collect_metrics_data(start_date, end_date, user_ids),  # CHANGÉ: user_ids
+            "top_clients_data": collect_top_clients_data(user_ids)  # CHANGÉ: user_ids
         }
         
         # Create task with formatted report
@@ -543,10 +556,10 @@ def odoo_business_report(
         
         return json.dumps({
             "status": "success",
-            "message": f"Business report generated successfully for {user_name}",
+            "message": f"Business report generated successfully for {combined_user_name}",
             "period": f"{start_date} to {end_date}",
             "task_id": task_id,
-            "task_name": f"Rapport d'activité - {user_name} ({start_date} au {end_date})",
+            "task_name": f"Rapport d'activité - {combined_user_name} ({start_date} au {end_date})",
             "report_data": report_data,
             "timestamp": datetime.datetime.now().isoformat()
         }, indent=2)
@@ -656,19 +669,10 @@ def get_company_revenue(company_id: int, start_date: str, end_date: str, user_id
     except Exception as e:
         raise Exception(f"Error calculating revenue: {str(e)}")
 
-def get_company_invoices_revenue(company_id: int, start_date: str, end_date: str, user_id: int, with_opportunities=None):
+def get_company_invoices_revenue(company_id: int, start_date: str, end_date: str, user_ids: List[int], with_opportunities=None):
     """
     Fonction pour calculer le CA facturé (account.move) basé sur les opportunités
-    
-    Args:
-        company_id: ID of the company
-        start_date: Start date in ISO format
-        end_date: End date in ISO format  
-        user_id: ID of the user/salesperson
-        with_opportunities: True for invoices WITH opportunities, False for WITHOUT, None for ALL
-    
-    Returns:
-        Total invoiced revenue amount
+    MODIFIÉ pour supporter plusieurs utilisateurs
     """
     try:
         # Build domain for account.move (invoices)
@@ -676,26 +680,23 @@ def get_company_invoices_revenue(company_id: int, start_date: str, end_date: str
             ['company_id', '=', company_id],
             ['invoice_date', '>=', start_date],
             ['invoice_date', '<=', end_date],
-            ['invoice_user_id', '=', user_id],
-            ['move_type', '=', 'out_invoice'],  # Only customer invoices
-            ['state', '=', 'posted']  # Only validated invoices
+            ['invoice_user_id', 'in', user_ids],  # CHANGÉ: 'in' au lieu de '='
+            ['move_type', '=', 'out_invoice'],
+            ['state', '=', 'posted']
         ]
         
         # Add opportunities filter
         if with_opportunities is True:
-            # For invoices with opportunities - check if related sale order has opportunity
             domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '!=', False])
         elif with_opportunities is False:
-            # For invoices without opportunities - check if related sale order has NO opportunity
             domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '=', False])
-        # If None, no opportunity filter (total invoiced)
         
         # Search invoices
         result = odoo_search(
             model='account.move',
             domain=domain,
             fields=['amount_total'],
-            limit=100  # Should be enough for weekly reports
+            limit=100
         )
         
         response = json.loads(result)
@@ -709,18 +710,10 @@ def get_company_invoices_revenue(company_id: int, start_date: str, end_date: str
     except Exception as e:
         raise Exception(f"Error calculating invoiced revenue: {str(e)}")
 
-def get_company_orders_revenue(company_id: int, start_date: str, end_date: str, user_id: int):
+def get_company_orders_revenue(company_id: int, start_date: str, end_date: str, user_ids: List[int]):
     """
     Fonction pour calculer le CA commandé (sale.order) NON ENCORE FACTURÉ
-    
-    Args:
-        company_id: ID of the company
-        start_date: Start date in ISO format
-        end_date: End date in ISO format  
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Total ordered (not yet invoiced) revenue amount
+    MODIFIÉ pour supporter plusieurs utilisateurs
     """
     try:
         # Build domain for sale.order (orders not fully invoiced)
@@ -728,8 +721,8 @@ def get_company_orders_revenue(company_id: int, start_date: str, end_date: str, 
             ['company_id', '=', company_id],
             ['date_order', '>=', start_date],
             ['date_order', '<=', end_date],
-            ['user_id', '=', user_id],
-            ['invoice_status', '!=', 'invoiced']  # Not fully invoiced to avoid double counting
+            ['user_id', 'in', user_ids],  # CHANGÉ: 'in' au lieu de '='
+            ['invoice_status', '!=', 'invoiced']
         ]
         
         # Search orders
@@ -737,7 +730,7 @@ def get_company_orders_revenue(company_id: int, start_date: str, end_date: str, 
             model='sale.order',
             domain=domain,
             fields=['amount_total'],
-            limit=100  # Should be enough for weekly reports
+            limit=100
         )
         
         response = json.loads(result)
@@ -751,53 +744,48 @@ def get_company_orders_revenue(company_id: int, start_date: str, end_date: str, 
     except Exception as e:
         raise Exception(f"Error calculating ordered revenue: {str(e)}")
 
-def collect_revenue_data(start_date: str, end_date: str, user_id: int):
+def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
     """
     Collect all revenue data for the business report using dynamic company detection
-    NOUVELLE VERSION avec 4 métriques distinctes par société
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Dictionary with all revenue metrics for user's companies
+    MODIFIÉ pour supporter plusieurs utilisateurs
     """
     try:
-        # Get user's company IDs
-        result = odoo_search(
-            model='res.users',
-            domain=[['id', '=', user_id]],
-            fields=['company_ids'],
-            limit=1
-        )
+        # Get ALL company IDs for ALL users
+        all_company_ids = set()
         
-        response = json.loads(result)
-        if not (response.get('status') == 'success' and response.get('records')):
-            raise Exception(f"User {user_id} not found")
+        for user_id in user_ids:
+            result = odoo_search(
+                model='res.users',
+                domain=[['id', '=', user_id]],
+                fields=['company_ids'],
+                limit=1
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success' and response.get('records'):
+                company_ids = response['records'][0].get('company_ids', [])
+                all_company_ids.update(company_ids)
         
-        company_ids = response['records'][0].get('company_ids', [])
-        if not company_ids:
-            raise Exception(f"User {user_id} has no associated companies")
+        if not all_company_ids:
+            raise Exception(f"Users {user_ids} have no associated companies")
         
-        # Calculate revenue for each company the user belongs to
+        # Calculate revenue for each company (AGRÉGÉ pour tous les utilisateurs)
         revenue_data = {}
-        for company_id in company_ids:
+        for company_id in all_company_ids:
             company_key = get_company_name(company_id)
             
-            # 4 nouvelles métriques avec noms corrects
+            # 4 métriques agrégées pour tous les utilisateurs
             revenue_data[f"ca_facture_{company_key}_avec_rdv"] = get_company_invoices_revenue(
-                company_id, start_date, end_date, user_id, with_opportunities=True
+                company_id, start_date, end_date, user_ids, with_opportunities=True
             )
             revenue_data[f"ca_facture_{company_key}_sans_rdv"] = get_company_invoices_revenue(
-                company_id, start_date, end_date, user_id, with_opportunities=False
+                company_id, start_date, end_date, user_ids, with_opportunities=False
             )
             revenue_data[f"ca_commande_{company_key}_total"] = get_company_orders_revenue(
-                company_id, start_date, end_date, user_id
+                company_id, start_date, end_date, user_ids
             )
             revenue_data[f"ca_facture_{company_key}_total"] = get_company_invoices_revenue(
-                company_id, start_date, end_date, user_id, with_opportunities=None
+                company_id, start_date, end_date, user_ids, with_opportunities=None
             )
         
         return revenue_data
@@ -805,25 +793,15 @@ def collect_revenue_data(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error collecting revenue data: {str(e)}")
 
-def get_appointments_placed(start_date: str, end_date: str, user_id: int):
-    """
-    Get number of appointments placed (opportunities at RDV dégustation stage)
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Number of appointments placed
-    """
+def get_appointments_placed(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         result = odoo_search(
             model='crm.lead',
             domain=[
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
-                ['user_id', '=', user_id],
+                ['user_id', 'in', user_ids],  # CHANGÉ: 'in' au lieu de '='
                 ['stage_id', '=', STAGE_IDS["rdv_degustation"]]
             ],
             fields=['id']
@@ -838,25 +816,15 @@ def get_appointments_placed(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error getting appointments placed: {str(e)}")
 
-def get_passer_voir_count(start_date: str, end_date: str, user_id: int):
-    """
-    Get number of 'Passer Voir' visits (opportunities at Passer Voir stage)
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Number of Passer Voir visits
-    """
+def get_passer_voir_count(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         result = odoo_search(
             model='crm.lead',
             domain=[
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
-                ['user_id', '=', user_id],
+                ['user_id', 'in', user_ids],  # CHANGÉ
                 ['stage_id', '=', STAGE_IDS["passer_voir"]]
             ],
             fields=['id']
@@ -871,25 +839,15 @@ def get_passer_voir_count(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error getting Passer Voir count: {str(e)}")
 
-def get_appointments_realized(start_date: str, end_date: str, user_id: int):
-    """
-    Get number of appointments realized (wine tastings created)
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Number of appointments realized
-    """
+def get_appointments_realized(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         result = odoo_search(
             model='wine.tasting',
             domain=[
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
-                ['opportunity_id.user_id', '=', user_id]
+                ['opportunity_id.user_id', 'in', user_ids]  # CHANGÉ
             ],
             fields=['id']
         )
@@ -903,25 +861,15 @@ def get_appointments_realized(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error getting appointments realized: {str(e)}")
 
-def get_orders_count(start_date: str, end_date: str, user_id: int):
-    """
-    Get number of orders created (by quote date)
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Number of orders
-    """
+def get_orders_count(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         result = odoo_search(
             model='sale.order',
             domain=[
                 ['date_order', '>=', start_date],
                 ['date_order', '<=', end_date],
-                ['user_id', '=', user_id]
+                ['user_id', 'in', user_ids]  # CHANGÉ
             ],
             fields=['id']
         )
@@ -935,27 +883,16 @@ def get_orders_count(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error getting orders count: {str(e)}")
 
-def get_new_clients_count(start_date: str, end_date: str, user_id: int):
-    """
-    Get number of new clients (contacts with first order in period)
-    Note: This is complex logic - simplified version for now
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Number of new clients
-    """
+def get_new_clients_count(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs - version simplifiée agrégée"""
     try:
-        # Get all orders in period for this user
+        # Get all orders in period for these users
         result = odoo_search(
             model='sale.order',
             domain=[
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
-                ['user_id', '=', user_id]
+                ['user_id', 'in', user_ids]  # CHANGÉ
             ],
             fields=['partner_id']
         )
@@ -968,12 +905,13 @@ def get_new_clients_count(start_date: str, end_date: str, user_id: int):
             # For each partner, check if they have any orders before start_date
             new_clients_count = 0
             for partner_id in partner_ids:
-                # Check if partner has any previous orders
+                # Check if partner has any previous orders from ANY of our users
                 previous_orders = odoo_search(
                     model='sale.order',
                     domain=[
                         ['partner_id', '=', partner_id],
-                        ['create_date', '<', start_date]
+                        ['create_date', '<', start_date],
+                        ['user_id', 'in', user_ids]  # CHANGÉ: même équipe
                     ],
                     fields=['id'],
                     limit=1
@@ -990,23 +928,13 @@ def get_new_clients_count(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error getting new clients count: {str(e)}")
 
-def get_recommendations_count(start_date: str, end_date: str, user_id: int):
-    """
-    Get number of recommendations (contacts with 'Recommandation' tag)
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Number of recommendations
-    """
+def get_recommendations_count(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         result = odoo_search(
             model='res.partner',
             domain=[
-                ['user_id', '=', user_id],
+                ['user_id', 'in', user_ids],  # CHANGÉ
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
                 ['category_id', 'in', [CATEGORY_IDS["recommandation"]]]
@@ -1023,25 +951,15 @@ def get_recommendations_count(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error getting recommendations count: {str(e)}")
 
-def get_deliveries_count(start_date: str, end_date: str, user_id: int):
-    """
-    Get number of deliveries completed
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Number of deliveries
-    """
+def get_deliveries_count(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         result = odoo_search(
             model='stock.picking',
             domain=[
                 ['date_done', '>=', start_date],
                 ['date_done', '<=', end_date],
-                ['user_id', '=', user_id]
+                ['user_id', 'in', user_ids]  # CHANGÉ
             ],
             fields=['id']
         )
@@ -1055,48 +973,29 @@ def get_deliveries_count(start_date: str, end_date: str, user_id: int):
     except Exception as e:
         raise Exception(f"Error getting deliveries count: {str(e)}")
 
-def collect_metrics_data(start_date: str, end_date: str, user_id: int):
-    """
-    Collect all business metrics for the report
-    
-    Args:
-        start_date: Start date in ISO format
-        end_date: End date in ISO format
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Dictionary with all metrics
-    """
+def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         return {
-            "rdv_places": get_appointments_placed(start_date, end_date, user_id),
-            "passer_voir": get_passer_voir_count(start_date, end_date, user_id),
-            "rdv_realises": get_appointments_realized(start_date, end_date, user_id),
-            "nombre_commandes": get_orders_count(start_date, end_date, user_id),
-            "nouveaux_clients": get_new_clients_count(start_date, end_date, user_id),
-            "recommandations": get_recommendations_count(start_date, end_date, user_id),
-            "livraisons": get_deliveries_count(start_date, end_date, user_id)
+            "rdv_places": get_appointments_placed(start_date, end_date, user_ids),
+            "passer_voir": get_passer_voir_count(start_date, end_date, user_ids),
+            "rdv_realises": get_appointments_realized(start_date, end_date, user_ids),
+            "nombre_commandes": get_orders_count(start_date, end_date, user_ids),
+            "nouveaux_clients": get_new_clients_count(start_date, end_date, user_ids),
+            "recommandations": get_recommendations_count(start_date, end_date, user_ids),
+            "livraisons": get_deliveries_count(start_date, end_date, user_ids)
         }
         
     except Exception as e:
         raise Exception(f"Error collecting metrics data: {str(e)}")
 
-def get_top_contact(user_id: int, category_id: int):
-    """
-    Get first contact with specific top category for a user
-    
-    Args:
-        user_id: ID of the user/salesperson
-        category_id: ID of the category tag
-    
-    Returns:
-        Contact name or None if not found
-    """
+def get_top_contact(user_ids: List[int], category_id: int):
+    """MODIFIÉ pour supporter plusieurs utilisateurs - retourne le premier trouvé"""
     try:
         result = odoo_search(
             model='res.partner',
             domain=[
-                ['user_id', '=', user_id],
+                ['user_id', 'in', user_ids],  # CHANGÉ
                 ['category_id', 'in', [category_id]]
             ],
             fields=['name'],
@@ -1111,25 +1010,17 @@ def get_top_contact(user_id: int, category_id: int):
     except Exception as e:
         raise Exception(f"Error getting top contact: {str(e)}")
 
-def get_tip_top_contacts(user_id: int):
-    """
-    Get all contacts with 'Tip Top' category for a user
-    
-    Args:
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        List of contact names
-    """
+def get_tip_top_contacts(user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         result = odoo_search(
             model='res.partner',
             domain=[
-                ['user_id', '=', user_id],
+                ['user_id', 'in', user_ids],  # CHANGÉ
                 ['category_id', 'in', [CATEGORY_IDS["tip_top"]]]
             ],
             fields=['name'],
-            limit=50  # Reasonable limit for tip top contacts
+            limit=50
         )
         
         response = json.loads(result)
@@ -1140,24 +1031,16 @@ def get_tip_top_contacts(user_id: int):
     except Exception as e:
         raise Exception(f"Error getting tip top contacts: {str(e)}")
 
-def collect_top_clients_data(user_id: int):
-    """
-    Collect all top clients data for the report
-    
-    Args:
-        user_id: ID of the user/salesperson
-    
-    Returns:
-        Dictionary with all top clients
-    """
+def collect_top_clients_data(user_ids: List[int]):
+    """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
         return {
-            "top_1": get_top_contact(user_id, CATEGORY_IDS["top_1"]),
-            "top_2": get_top_contact(user_id, CATEGORY_IDS["top_2"]),
-            "top_3": get_top_contact(user_id, CATEGORY_IDS["top_3"]),
-            "top_4": get_top_contact(user_id, CATEGORY_IDS["top_4"]),
-            "top_5": get_top_contact(user_id, CATEGORY_IDS["top_5"]),
-            "tip_top": get_tip_top_contacts(user_id)
+            "top_1": get_top_contact(user_ids, CATEGORY_IDS["top_1"]),
+            "top_2": get_top_contact(user_ids, CATEGORY_IDS["top_2"]),
+            "top_3": get_top_contact(user_ids, CATEGORY_IDS["top_3"]),
+            "top_4": get_top_contact(user_ids, CATEGORY_IDS["top_4"]),
+            "top_5": get_top_contact(user_ids, CATEGORY_IDS["top_5"]),
+            "tip_top": get_tip_top_contacts(user_ids)
         }
         
     except Exception as e:
@@ -1179,8 +1062,7 @@ def format_currency(amount):
 
 def generate_report_html_table(report_data):
     """
-    Generate HTML table for business report in Odoo WYSIWYG format
-    MISE À JOUR avec les nouveaux noms de métriques CA
+    MODIFIÉ pour supporter les noms d'utilisateurs multiples
     """
     try:
         user_info = report_data.get('user_info', {})
@@ -1190,7 +1072,7 @@ def generate_report_html_table(report_data):
         
         html = f"""
         <div class="container">
-            <h2>Rapport d'activité - {user_info.get('user_name', 'N/A')}</h2>
+            <h2>Rapport d'activité - {user_info.get('combined_user_name', 'N/A')}</h2>
             <p><strong>Période:</strong> {user_info.get('start_date', 'N/A')} au {user_info.get('end_date', 'N/A')}</p>
             
             <table class="table table-bordered table-striped" style="width: 100%; border-collapse: collapse; margin-top: 20px;">
@@ -1203,7 +1085,8 @@ def generate_report_html_table(report_data):
                 <tbody>
         """
         
-        # Revenue section avec nouveaux noms
+        # Le reste reste identique à la version précédente
+        # Revenue section avec nouveaux noms (pas de changement ici)
         for key, value in revenue_data.items():
             if key.startswith('ca_facture_') and key.endswith('_avec_rdv'):
                 company_name = key.replace('ca_facture_', '').replace('_avec_rdv', '').title()
@@ -1232,8 +1115,7 @@ def generate_report_html_table(report_data):
                     </tr>
             """
         
-        # Le reste reste identique...
-        # Metrics section
+        # Metrics section (identique)
         metrics_labels = {
             "rdv_places": "Rendez-vous placés",
             "passer_voir": "Passer Voir",
@@ -1253,12 +1135,12 @@ def generate_report_html_table(report_data):
                     </tr>
             """
         
-        # Top clients section (reste identique)
+        # Top clients section (identique)
         top_labels = {
             "top_1": "Top 1",
-            "top_2": "Top 2",
+            "top_2": "Top 2", 
             "top_3": "Top 3",
-            "top_4": "Top 4", 
+            "top_4": "Top 4",
             "top_5": "Top 5",
             "tip_top": "Tip Top"
         }
@@ -1287,8 +1169,7 @@ def generate_report_html_table(report_data):
         return html
         
     except Exception as e:
-        raise Exception(f"Error generating HTML table: {str(e)}")
-    
+        raise Exception(f"Error generating HTML table: {str(e)}")    
 
 def create_report_task(report_data, project_id, task_column_id):
     """
