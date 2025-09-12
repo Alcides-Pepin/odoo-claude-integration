@@ -1204,6 +1204,105 @@ def get_new_clients_details_individual(start_date: str, end_date: str, user_ids:
     except Exception as e:
         raise Exception(f"Error getting new clients details: {str(e)}")
 
+def get_recommendations_details_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get detailed list of recommendations for each user individually"""
+    try:
+        individual_details = {}
+        
+        for user_id in user_ids:
+            result = odoo_search(
+                model='res.partner',
+                domain=[
+                    ['user_id', '=', user_id],
+                    ['create_date', '>=', start_date],
+                    ['create_date', '<=', end_date],
+                    ['category_id', 'in', [CATEGORY_IDS["recommandation"]]]
+                ],
+                fields=['id', 'name'],
+                limit=50
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                contacts = []
+                for contact in response.get('records', []):
+                    contacts.append({
+                        'id': contact['id'],
+                        'name': contact.get('name', 'Contact sans nom')
+                    })
+                individual_details[user_id] = contacts
+            else:
+                individual_details[user_id] = []
+        
+        return individual_details
+        
+    except Exception as e:
+        raise Exception(f"Error getting recommendations details: {str(e)}")
+
+def get_new_clients_details_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get detailed list of new clients for each user individually"""
+    try:
+        individual_details = {}
+        
+        for user_id in user_ids:
+            # Get orders in period for this specific user
+            result = odoo_search(
+                model='sale.order',
+                domain=[
+                    ['create_date', '>=', start_date],
+                    ['create_date', '<=', end_date],
+                    ['user_id', '=', user_id]
+                ],
+                fields=['partner_id'],
+                limit=100
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                # Get unique partner IDs from orders for this user
+                partner_ids = list(set([order['partner_id'][0] for order in response.get('records', []) if order.get('partner_id')]))
+                
+                new_clients = []
+                for partner_id in partner_ids:
+                    # Check if partner has any orders before start_date FROM THIS USER
+                    previous_orders = odoo_search(
+                        model='sale.order',
+                        domain=[
+                            ['partner_id', '=', partner_id],
+                            ['create_date', '<', start_date],
+                            ['user_id', '=', user_id]
+                        ],
+                        fields=['id'],
+                        limit=1
+                    )
+                    
+                    prev_response = json.loads(previous_orders)
+                    if prev_response.get('status') == 'success' and prev_response.get('returned_count', 0) == 0:
+                        # This is a new client, get their details
+                        client_details = odoo_search(
+                            model='res.partner',
+                            domain=[['id', '=', partner_id]],
+                            fields=['id', 'name'],
+                            limit=1
+                        )
+                        
+                        client_response = json.loads(client_details)
+                        if client_response.get('status') == 'success' and client_response.get('records'):
+                            client = client_response['records'][0]
+                            new_clients.append({
+                                'id': client['id'],
+                                'name': client.get('name', 'Client sans nom')
+                            })
+                
+                individual_details[user_id] = new_clients
+            else:
+                individual_details[user_id] = []
+        
+        return individual_details
+        
+    except Exception as e:
+        raise Exception(f"Error getting new clients details: {str(e)}")
+
 def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
     """
     Collect all business metrics for the report
@@ -1312,7 +1411,7 @@ def format_currency(amount):
         return f"{float(amount):,.0f} €".replace(",", " ")
     except (ValueError, TypeError):
         return "0 €"
-
+    
 def generate_report_html_table(report_data):
     """
     Generate HTML table for business report in Odoo WYSIWYG format
