@@ -1105,10 +1105,109 @@ def get_new_clients_count_individual(start_date: str, end_date: str, user_ids: L
     except Exception as e:
         raise Exception(f"Error getting individual new clients count: {str(e)}")
 
+def get_recommendations_details_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get detailed list of recommendations for each user individually"""
+    try:
+        individual_details = {}
+        
+        for user_id in user_ids:
+            result = odoo_search(
+                model='res.partner',
+                domain=[
+                    ['user_id', '=', user_id],
+                    ['create_date', '>=', start_date],
+                    ['create_date', '<=', end_date],
+                    ['category_id', 'in', [CATEGORY_IDS["recommandation"]]]
+                ],
+                fields=['id', 'name'],
+                limit=50
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                contacts = []
+                for contact in response.get('records', []):
+                    contacts.append({
+                        'id': contact['id'],
+                        'name': contact.get('name', 'Contact sans nom')
+                    })
+                individual_details[user_id] = contacts
+            else:
+                individual_details[user_id] = []
+        
+        return individual_details
+        
+    except Exception as e:
+        raise Exception(f"Error getting recommendations details: {str(e)}")
+
+def get_new_clients_details_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get detailed list of new clients for each user individually"""
+    try:
+        individual_details = {}
+        
+        for user_id in user_ids:
+            # Get orders in period for this specific user
+            result = odoo_search(
+                model='sale.order',
+                domain=[
+                    ['create_date', '>=', start_date],
+                    ['create_date', '<=', end_date],
+                    ['user_id', '=', user_id]
+                ],
+                fields=['partner_id'],
+                limit=100
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                # Get unique partner IDs from orders for this user
+                partner_ids = list(set([order['partner_id'][0] for order in response.get('records', []) if order.get('partner_id')]))
+                
+                new_clients = []
+                for partner_id in partner_ids:
+                    # Check if partner has any orders before start_date FROM THIS USER
+                    previous_orders = odoo_search(
+                        model='sale.order',
+                        domain=[
+                            ['partner_id', '=', partner_id],
+                            ['create_date', '<', start_date],
+                            ['user_id', '=', user_id]
+                        ],
+                        fields=['id'],
+                        limit=1
+                    )
+                    
+                    prev_response = json.loads(previous_orders)
+                    if prev_response.get('status') == 'success' and prev_response.get('returned_count', 0) == 0:
+                        # This is a new client, get their details
+                        client_details = odoo_search(
+                            model='res.partner',
+                            domain=[['id', '=', partner_id]],
+                            fields=['id', 'name'],
+                            limit=1
+                        )
+                        
+                        client_response = json.loads(client_details)
+                        if client_response.get('status') == 'success' and client_response.get('records'):
+                            client = client_response['records'][0]
+                            new_clients.append({
+                                'id': client['id'],
+                                'name': client.get('name', 'Client sans nom')
+                            })
+                
+                individual_details[user_id] = new_clients
+            else:
+                individual_details[user_id] = []
+        
+        return individual_details
+        
+    except Exception as e:
+        raise Exception(f"Error getting new clients details: {str(e)}")
+
 def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
     """
     Collect all business metrics for the report
-    MODIFIÉ pour inclure à la fois métriques agrégées ET individuelles
+    MODIFIÉ pour inclure les détails des clients
     """
     try:
         # Métriques AGRÉGÉES (comme avant)
@@ -1122,7 +1221,7 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
             "livraisons": get_deliveries_count(start_date, end_date, user_ids)
         }
         
-        # Métriques INDIVIDUELLES (nouveau)
+        # Métriques INDIVIDUELLES (compteurs)
         individual_metrics = {
             "rdv_places_individual": get_appointments_placed_individual(start_date, end_date, user_ids),
             "nombre_commandes_individual": get_orders_count_individual(start_date, end_date, user_ids),
@@ -1130,10 +1229,17 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
             "nouveaux_clients_individual": get_new_clients_count_individual(start_date, end_date, user_ids)
         }
         
-        # Combiner les deux
+        # Détails INDIVIDUELS (listes de clients)
+        individual_details = {
+            "recommandations_details_individual": get_recommendations_details_individual(start_date, end_date, user_ids),
+            "nouveaux_clients_details_individual": get_new_clients_details_individual(start_date, end_date, user_ids)
+        }
+        
+        # Combiner tout
         return {
             **aggregated_metrics,
-            **individual_metrics
+            **individual_metrics,
+            **individual_details
         }
         
     except Exception as e:
@@ -1210,7 +1316,7 @@ def format_currency(amount):
 def generate_report_html_table(report_data):
     """
     Generate HTML table for business report in Odoo WYSIWYG format
-    MODIFIÉ pour inclure les lignes vides pour relances et paiements
+    MODIFIÉ pour inclure les listes de clients détaillées
     """
     try:
         user_info = report_data.get('user_info', {})
@@ -1282,28 +1388,54 @@ def generate_report_html_table(report_data):
                     </tr>
             """
         
-        # Section métriques INDIVIDUELLES
+        # Section métriques INDIVIDUELLES avec détails
         individual_metrics = {
-            "rdv_places_individual": "Nombre de rendez-vous placés",
-            "nombre_commandes_individual": "Nombre de commandes", 
-            "recommandations_individual": "Nombre de recommandations",
-            "nouveaux_clients_individual": "Nombre de nouveaux clients"
+            "rdv_places_individual": ("Nombre de rendez-vous placés", None),
+            "nombre_commandes_individual": ("Nombre de commandes", None), 
+            "recommandations_individual": ("Nombre de recommandations", "recommandations_details_individual"),
+            "nouveaux_clients_individual": ("Nombre de nouveaux clients", "nouveaux_clients_details_individual")
         }
         
-        for metric_key, base_label in individual_metrics.items():
+        for metric_key, (base_label, details_key) in individual_metrics.items():
             individual_data = metrics_data.get(metric_key, {})
+            details_data = metrics_data.get(details_key, {}) if details_key else {}
+            
             if individual_data:
                 for user_id, count in individual_data.items():
                     user_name = user_name_map.get(user_id, f"User {user_id}")
                     label = f"{base_label} - {user_name}"
+                    
+                    # Ligne avec le nombre
                     html += f"""
                             <tr>
                                 <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
                                 <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{count}</td>
                             </tr>
                     """
+                    
+                    # Ligne avec les détails (si applicable)
+                    if details_key and user_id in details_data:
+                        clients = details_data[user_id]
+                        if clients:
+                            if details_key == "recommandations_details_individual":
+                                detail_label = f"Contacts recommandés - {user_name}"
+                            else:  # nouveaux_clients_details_individual
+                                detail_label = f"Nouveaux clients - {user_name}"
+                            
+                            # Créer liste à puces avec liens
+                            clients_list = "<br>".join([
+                                f"• <a href='{ODOO_URL}/web#id={client['id']}&model=res.partner&view_type=form'>{client['name']}</a>"
+                                for client in clients
+                            ])
+                            
+                            html += f"""
+                                    <tr>
+                                        <td style="border: 1px solid #dee2e6; padding: 10px;">{detail_label}</td>
+                                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{clients_list}</td>
+                                    </tr>
+                            """
         
-        # NOUVEAU: Section lignes vides pour saisie manuelle
+        # Section lignes vides pour saisie manuelle
         html += f"""
                 <tr style="background-color: #fff3cd;">
                     <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de relances impayés faites</td>
