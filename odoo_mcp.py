@@ -973,17 +973,167 @@ def get_deliveries_count(start_date: str, end_date: str, user_ids: List[int]):
     except Exception as e:
         raise Exception(f"Error getting deliveries count: {str(e)}")
 
-def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
-    """MODIFIÉ pour supporter plusieurs utilisateurs"""
+def get_appointments_placed_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get appointments placed count for each user individually"""
     try:
-        return {
-            "rdv_places": get_appointments_placed(start_date, end_date, user_ids),
+        individual_counts = {}
+        
+        for user_id in user_ids:
+            result = odoo_search(
+                model='crm.lead',
+                domain=[
+                    ['create_date', '>=', start_date],
+                    ['create_date', '<=', end_date],
+                    ['user_id', '=', user_id],  # Un seul utilisateur à la fois
+                    ['stage_id', '=', STAGE_IDS["rdv_degustation"]]
+                ],
+                fields=['id']
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                individual_counts[user_id] = response.get('returned_count', 0)
+            else:
+                individual_counts[user_id] = 0
+        
+        return individual_counts
+        
+    except Exception as e:
+        raise Exception(f"Error getting individual appointments placed: {str(e)}")
+
+def get_orders_count_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get orders count for each user individually"""
+    try:
+        individual_counts = {}
+        
+        for user_id in user_ids:
+            result = odoo_search(
+                model='sale.order',
+                domain=[
+                    ['date_order', '>=', start_date],
+                    ['date_order', '<=', end_date],
+                    ['user_id', '=', user_id]  # Un seul utilisateur à la fois
+                ],
+                fields=['id']
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                individual_counts[user_id] = response.get('returned_count', 0)
+            else:
+                individual_counts[user_id] = 0
+        
+        return individual_counts
+        
+    except Exception as e:
+        raise Exception(f"Error getting individual orders count: {str(e)}")
+
+def get_recommendations_count_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get recommendations count for each user individually"""
+    try:
+        individual_counts = {}
+        
+        for user_id in user_ids:
+            result = odoo_search(
+                model='res.partner',
+                domain=[
+                    ['user_id', '=', user_id],  # Un seul utilisateur à la fois
+                    ['create_date', '>=', start_date],
+                    ['create_date', '<=', end_date],
+                    ['category_id', 'in', [CATEGORY_IDS["recommandation"]]]
+                ],
+                fields=['id']
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                individual_counts[user_id] = response.get('returned_count', 0)
+            else:
+                individual_counts[user_id] = 0
+        
+        return individual_counts
+        
+    except Exception as e:
+        raise Exception(f"Error getting individual recommendations count: {str(e)}")
+
+def get_new_clients_count_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get new clients count for each user individually"""
+    try:
+        individual_counts = {}
+        
+        for user_id in user_ids:
+            # Get orders in period for this specific user
+            result = odoo_search(
+                model='sale.order',
+                domain=[
+                    ['create_date', '>=', start_date],
+                    ['create_date', '<=', end_date],
+                    ['user_id', '=', user_id]  # Un seul utilisateur à la fois
+                ],
+                fields=['partner_id']
+            )
+            
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                # Get unique partner IDs from orders for this user
+                partner_ids = list(set([order['partner_id'][0] for order in response.get('records', []) if order.get('partner_id')]))
+                
+                # For each partner, check if they have any orders before start_date FROM THIS USER
+                new_clients_count = 0
+                for partner_id in partner_ids:
+                    previous_orders = odoo_search(
+                        model='sale.order',
+                        domain=[
+                            ['partner_id', '=', partner_id],
+                            ['create_date', '<', start_date],
+                            ['user_id', '=', user_id]  # Même utilisateur spécifique
+                        ],
+                        fields=['id'],
+                        limit=1
+                    )
+                    
+                    prev_response = json.loads(previous_orders)
+                    if prev_response.get('status') == 'success' and prev_response.get('returned_count', 0) == 0:
+                        new_clients_count += 1
+                
+                individual_counts[user_id] = new_clients_count
+            else:
+                individual_counts[user_id] = 0
+        
+        return individual_counts
+        
+    except Exception as e:
+        raise Exception(f"Error getting individual new clients count: {str(e)}")
+
+def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    Collect all business metrics for the report
+    MODIFIÉ pour inclure à la fois métriques agrégées ET individuelles
+    """
+    try:
+        # Métriques AGRÉGÉES (comme avant)
+        aggregated_metrics = {
+            "rdv_places_total": get_appointments_placed(start_date, end_date, user_ids),
             "passer_voir": get_passer_voir_count(start_date, end_date, user_ids),
             "rdv_realises": get_appointments_realized(start_date, end_date, user_ids),
-            "nombre_commandes": get_orders_count(start_date, end_date, user_ids),
-            "nouveaux_clients": get_new_clients_count(start_date, end_date, user_ids),
-            "recommandations": get_recommendations_count(start_date, end_date, user_ids),
+            "nombre_commandes_total": get_orders_count(start_date, end_date, user_ids),
+            "nouveaux_clients_total": get_new_clients_count(start_date, end_date, user_ids),
+            "recommandations_total": get_recommendations_count(start_date, end_date, user_ids),
             "livraisons": get_deliveries_count(start_date, end_date, user_ids)
+        }
+        
+        # Métriques INDIVIDUELLES (nouveau)
+        individual_metrics = {
+            "rdv_places_individual": get_appointments_placed_individual(start_date, end_date, user_ids),
+            "nombre_commandes_individual": get_orders_count_individual(start_date, end_date, user_ids),
+            "recommandations_individual": get_recommendations_count_individual(start_date, end_date, user_ids),
+            "nouveaux_clients_individual": get_new_clients_count_individual(start_date, end_date, user_ids)
+        }
+        
+        # Combiner les deux
+        return {
+            **aggregated_metrics,
+            **individual_metrics
         }
         
     except Exception as e:
@@ -1062,13 +1212,19 @@ def format_currency(amount):
 
 def generate_report_html_table(report_data):
     """
-    MODIFIÉ pour supporter les noms d'utilisateurs multiples
+    Generate HTML table for business report in Odoo WYSIWYG format
+    MODIFIÉ pour inclure les métriques individuelles
     """
     try:
         user_info = report_data.get('user_info', {})
         revenue_data = report_data.get('revenue_data', {})
         metrics_data = report_data.get('metrics_data', {})
         top_clients_data = report_data.get('top_clients_data', {})
+        
+        # Récupérer les noms d'utilisateurs pour affichage
+        user_ids = user_info.get('user_ids', [])
+        user_names = user_info.get('user_names', [])
+        user_name_map = dict(zip(user_ids, user_names))
         
         html = f"""
         <div class="container">
@@ -1085,8 +1241,7 @@ def generate_report_html_table(report_data):
                 <tbody>
         """
         
-        # Le reste reste identique à la version précédente
-        # Revenue section avec nouveaux noms (pas de changement ici)
+        # Section CA (AGRÉGÉ - reste identique)
         for key, value in revenue_data.items():
             if key.startswith('ca_facture_') and key.endswith('_avec_rdv'):
                 company_name = key.replace('ca_facture_', '').replace('_avec_rdv', '').title()
@@ -1105,8 +1260,7 @@ def generate_report_html_table(report_data):
                 label = f"Chiffre d'affaires {company_name} Total Facturé"
                 style = "background-color: #e9ecef; font-weight: bold;"
             else:
-                label = key.replace('_', ' ').title()
-                style = ""
+                continue
                 
             html += f"""
                     <tr style="{style}">
@@ -1115,38 +1269,55 @@ def generate_report_html_table(report_data):
                     </tr>
             """
         
-        # Metrics section (identique)
-        metrics_labels = {
-            "rdv_places": "Rendez-vous placés",
-            "passer_voir": "Passer Voir",
-            "rdv_realises": "Rendez-vous réalisés", 
-            "nombre_commandes": "Nombre de commandes",
-            "nouveaux_clients": "Nouveaux clients",
-            "recommandations": "Recommandations",
+        # Section métriques AGRÉGÉES (celles qui restent combinées)
+        aggregated_labels = {
+            "passer_voir": "Passer Voir", 
+            "rdv_realises": "Rendez-vous réalisés",
             "livraisons": "Livraisons"
         }
         
-        for key, value in metrics_data.items():
-            label = metrics_labels.get(key, key.replace('_', ' ').title())
+        for key, label in aggregated_labels.items():
+            value = metrics_data.get(key, 0)
             html += f"""
                     <tr>
                         <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
-                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value if value is not None else 0}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value}</td>
                     </tr>
             """
         
-        # Top clients section (identique)
+        # Section métriques INDIVIDUELLES (nouveau)
+        individual_metrics = {
+            "rdv_places_individual": "Nombre de rendez-vous placés",
+            "nombre_commandes_individual": "Nombre de commandes", 
+            "recommandations_individual": "Nombre de recommandations",
+            "nouveaux_clients_individual": "Nombre de nouveaux clients"
+        }
+        
+        for metric_key, base_label in individual_metrics.items():
+            individual_data = metrics_data.get(metric_key, {})
+            if individual_data:
+                for user_id, count in individual_data.items():
+                    user_name = user_name_map.get(user_id, f"User {user_id}")
+                    label = f"{base_label} - {user_name}"
+                    html += f"""
+                            <tr>
+                                <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
+                                <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{count}</td>
+                            </tr>
+                    """
+        
+        # Section Top clients (AGRÉGÉ - reste identique)
         top_labels = {
             "top_1": "Top 1",
-            "top_2": "Top 2", 
-            "top_3": "Top 3",
+            "top_2": "Top 2",
+            "top_3": "Top 3", 
             "top_4": "Top 4",
             "top_5": "Top 5",
             "tip_top": "Tip Top"
         }
         
-        for key, value in top_clients_data.items():
-            label = top_labels.get(key, key.replace('_', ' ').title())
+        for key, label in top_labels.items():
+            value = top_clients_data.get(key)
             
             if key == "tip_top" and isinstance(value, list):
                 display_value = ", ".join(value) if value else "Aucun"
@@ -1169,8 +1340,8 @@ def generate_report_html_table(report_data):
         return html
         
     except Exception as e:
-        raise Exception(f"Error generating HTML table: {str(e)}")    
-
+        raise Exception(f"Error generating HTML table: {str(e)}")
+    
 def create_report_task(report_data, project_id, task_column_id):
     """
     Create an Odoo task with the business report
