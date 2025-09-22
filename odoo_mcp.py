@@ -816,50 +816,53 @@ def get_appointments_placed(start_date: str, end_date: str, user_ids: List[int])
     except Exception as e:
         raise Exception(f"Error getting appointments placed: {str(e)}")
 
+
 def get_passer_voir_count(start_date: str, end_date: str, user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
-        result = odoo_search(
+        result = odoo_execute(
             model='crm.lead',
-            domain=[
+            method='search_count',
+            args=[[
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
-                ['user_id', 'in', user_ids],  # CHANGÉ
+                ['user_id', 'in', user_ids],
                 ['stage_id', '=', STAGE_IDS["passer_voir"]]
-            ],
-            fields=['id']
+            ]]
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
-            return response.get('returned_count', 0)
+            return response.get('result', 0)
         else:
             raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
+
     except Exception as e:
         raise Exception(f"Error getting Passer Voir count: {str(e)}")
+
 
 def get_appointments_realized(start_date: str, end_date: str, user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
-        result = odoo_search(
+        result = odoo_execute(
             model='wine.tasting',
-            domain=[
+            method='search_count',
+            args=[[
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
-                ['opportunity_id.user_id', 'in', user_ids]  # CHANGÉ
-            ],
-            fields=['id']
+                ['opportunity_id.user_id', 'in', user_ids]
+            ]]
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
-            return response.get('returned_count', 0)
+            return response.get('result', 0)
         else:
             raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
+
     except Exception as e:
         raise Exception(f"Error getting appointments realized: {str(e)}")
+
 
 def get_orders_count(start_date: str, end_date: str, user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
@@ -906,53 +909,55 @@ def get_recommendations_count(start_date: str, end_date: str, user_ids: List[int
     except Exception as e:
         raise Exception(f"Error getting recommendations count: {str(e)}")
 
+
 def get_deliveries_count(start_date: str, end_date: str, user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
-        result = odoo_search(
+        result = odoo_execute(
             model='stock.picking',
-            domain=[
+            method='search_count',
+            args=[[
                 ['date_done', '>=', start_date],
                 ['date_done', '<=', end_date],
-                ['user_id', 'in', user_ids]  # CHANGÉ
-            ],
-            fields=['id']
+                ['user_id', 'in', user_ids]
+            ]]
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
-            return response.get('returned_count', 0)
+            return response.get('result', 0)
         else:
             raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
+
     except Exception as e:
         raise Exception(f"Error getting deliveries count: {str(e)}")
+
 
 def get_appointments_placed_individual(start_date: str, end_date: str, user_ids: List[int]):
     """Get appointments placed count for each user individually"""
     try:
         individual_counts = {}
-        
+
         for user_id in user_ids:
-            result = odoo_search(
+            result = odoo_execute(
                 model='crm.lead',
-                domain=[
+                method='search_count',
+                args=[[
                     ['create_date', '>=', start_date],
                     ['create_date', '<=', end_date],
-                    ['user_id', '=', user_id],  # Un seul utilisateur à la fois
+                    ['user_id', '=', user_id],
                     ['stage_id', '=', STAGE_IDS["rdv_degustation"]]
-                ],
-                fields=['id']
+                ]]
             )
-            
+
             response = json.loads(result)
             if response.get('status') == 'success':
-                individual_counts[user_id] = response.get('returned_count', 0)
+                individual_counts[user_id] = response.get('result', 0)
             else:
                 individual_counts[user_id] = 0
-        
+
         return individual_counts
-        
+
     except Exception as e:
         raise Exception(f"Error getting individual appointments placed: {str(e)}")
 
@@ -1018,53 +1023,59 @@ def get_recommendations_count_individual(start_date: str, end_date: str, user_id
         raise Exception(f"Error getting individual recommendations count: {str(e)}")
 
 
-def get_new_clients_count_individual(start_date: str, end_date: str, user_ids: List[int]):
+def get_new_clients_count_individual(
+    start_date: str, 
+    end_date: str, 
+    user_ids: List[int]
+):
     """Get new clients count for each user individually"""
     try:
         individual_counts = {}
 
         for user_id in user_ids:
-            # Get orders in period for this specific user
             result = odoo_search(
                 model='sale.order',
                 domain=[
                     ['create_date', '>=', start_date],
                     ['create_date', '<=', end_date],
+                    ['user_id', '=', user_id]
                 ],
                 fields=['partner_id']
             )
 
             response = json.loads(result)
             if response.get('status') == 'success':
-                # Get unique partner IDs from orders for this user
-                partner_ids = list(set([order['partner_id'][0] for order in response.get('records', []) if order.get('partner_id')]))
+                partner_ids = list(set([
+                    order['partner_id'][0]
+                    for order in response.get('records', [])
+                    if order.get('partner_id')
+                ]))
 
-                # For each partner, check if they have any orders before start_date FROM THIS USER
                 new_clients_count = 0
                 for partner_id in partner_ids:
-                    previous_orders = odoo_search(
+                    previous_orders = odoo_execute(
                         model='sale.order',
-                        domain=[
+                        method='search_count',
+                        args=[[
                             ['partner_id', '=', partner_id],
-                            ['create_date', '<', start_date],
-                            ['user_id', '=', user_id]  # Même utilisateur spécifique
-                        ],
-                        fields=['id'],
-                        limit=1
+                            ['create_date', '<', start_date]
+                        ]]
                     )
-                    
+
                     prev_response = json.loads(previous_orders)
-                    if prev_response.get('status') == 'success' and prev_response.get('returned_count', 0) == 0:
+                    if (prev_response.get('status') == 'success' and
+                        prev_response.get('result', 0) == 0):
                         new_clients_count += 1
-                
+
                 individual_counts[user_id] = new_clients_count
             else:
                 individual_counts[user_id] = 0
-        
+
         return individual_counts
-        
+
     except Exception as e:
         raise Exception(f"Error getting individual new clients count: {str(e)}")
+
 
 def get_recommendations_details_individual(start_date: str, end_date: str, user_ids: List[int]):
     """Get detailed list of recommendations for each user individually"""
