@@ -956,32 +956,38 @@ def get_appointments_placed_individual(start_date: str, end_date: str, user_ids:
     except Exception as e:
         raise Exception(f"Error getting individual appointments placed: {str(e)}")
 
-def get_orders_count_individual(start_date: str, end_date: str, user_ids: List[int]):
+
+def get_orders_count_individual(
+        start_date: str,
+        end_date: str,
+        user_ids: List[int]
+        ):
     """Get orders count for each user individually"""
     try:
         individual_counts = {}
-        
+
         for user_id in user_ids:
-            result = odoo_search(
+            result = odoo_execute(
                 model='sale.order',
-                domain=[
+                method='search_count',
+                args=[[
                     ['date_order', '>=', start_date],
                     ['date_order', '<=', end_date],
-                    ['user_id', '=', user_id]  # Un seul utilisateur à la fois
-                ],
-                fields=['id']
+                    ['user_id', '=', user_id]
+                ]]
             )
-            
+
             response = json.loads(result)
             if response.get('status') == 'success':
-                individual_counts[user_id] = response.get('returned_count', 0)
+                individual_counts[user_id] = response.get('result', 0)
             else:
                 individual_counts[user_id] = 0
-        
+
         return individual_counts
-        
+
     except Exception as e:
         raise Exception(f"Error getting individual orders count: {str(e)}")
+
 
 def get_recommendations_count_individual(start_date: str, end_date: str, user_ids: List[int]):
     """Get recommendations count for each user individually"""
