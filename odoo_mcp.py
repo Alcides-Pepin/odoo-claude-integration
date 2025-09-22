@@ -2001,41 +2001,56 @@ def get_completed_projects_details(start_date: str, end_date: str, user_id: int)
     except Exception as e:
         raise Exception(f"Error getting completed projects details: {str(e)}")
 
+
 def get_activity_count(domain):
     """Get count of mail.activity with given domain"""
     try:
-        result = odoo_search(
+        result = odoo_execute(
             model='mail.activity',
-            domain=domain,
-            fields=['id']
+            method='search_count',
+            args=[domain]
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
-            return response.get('returned_count', 0)
+            return response.get('result', 0)
         else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
+            raise Exception(
+                f"Search failed: {
+                    response.get(
+                        'error', 'Unknown error'
+                        )
+                        }"
+                        )
+
     except Exception as e:
         raise Exception(f"Error getting activity count: {str(e)}")
+
 
 def get_task_count(domain):
     """Get count of project.task with given domain"""
     try:
-        result = odoo_search(
+        result = odoo_execute(
             model='project.task',
-            domain=domain,
-            fields=['id']
+            method='search_count',
+            args=[domain]
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
-            return response.get('returned_count', 0)
+            return response.get('result', 0)
         else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
+            raise Exception(
+                f"Search failed: {
+                    response.get(
+                        'error', 'Unknown error'
+                        )
+                        }"
+                        )
+
     except Exception as e:
         raise Exception(f"Error getting task count: {str(e)}")
+
 
 def get_project_count(domain):
     """Get count of project.project with given domain"""
@@ -2063,45 +2078,46 @@ def get_completed_projects_count(start_date: str, end_date: str, user_id: int):
             model='project.update',
             domain=[
                 ['status', '=', 'done'],
-                ['date', '>=', start_date], 
+                ['date', '>=', start_date],
                 ['date', '<=', end_date]
             ],
             fields=['project_id']
         )
-        
+
         updates_response = json.loads(updates_result)
         if updates_response.get('status') != 'success':
             raise Exception(f"Updates search failed: {updates_response.get('error', 'Unknown error')}")
-        
+
         # Récupérer les IDs des projets
         project_ids = []
         for update in updates_response.get('records', []):
             if update.get('project_id'):
                 project_ids.append(update['project_id'][0])
-        
+
         if not project_ids:
             return 0
-        
-        # Étape 2: Vérifier que l'utilisateur participe à ces projets
-        completed_projects_result = odoo_search(
+
+        # Étape 2: Compter les projets où l'utilisateur participe
+        completed_projects_result = odoo_execute(
             model='project.project',
-            domain=[
+            method='search_count',
+            args=[[
                 ['id', 'in', project_ids],
                 '|',
                 ['user_id', '=', user_id],
                 ['favorite_user_ids', 'in', [user_id]]
-            ],
-            fields=['id']
+            ]]
         )
-        
+
         completed_response = json.loads(completed_projects_result)
         if completed_response.get('status') == 'success':
-            return completed_response.get('returned_count', 0)
+            return completed_response.get('result', 0)
         else:
             raise Exception(f"Projects search failed: {completed_response.get('error', 'Unknown error')}")
-            
+
     except Exception as e:
         raise Exception(f"Error getting completed projects count: {str(e)}")
+
 
 def generate_activity_report_html_table(report_data):
     """Generate HTML table for activity report with detailed lists"""
