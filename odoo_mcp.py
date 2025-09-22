@@ -6,9 +6,9 @@ import socket
 import time
 from typing import Any, List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
-from typing import List
 
-# Get port from environment variable (Railway/Render sets this, defaults to 8001 for local dev)
+# Get port from environment variable
+# (Railway/Render sets this, defaults to 8001 for local dev)
 PORT = int(os.environ.get("PORT", 8001))
 
 # Odoo configuration
@@ -550,20 +550,20 @@ def odoo_business_report(
             "metrics_data": collect_metrics_data(start_date, end_date, user_ids),  # CHANGÉ: user_ids
             "top_clients_data": collect_top_clients_data(user_ids)  # CHANGÉ: user_ids
         }
-        
+
         # Create task with formatted report
         task_id = create_report_task(report_data, project_id, task_column_id)
-        
+
         return json.dumps({
             "status": "success",
             "message": f"Business report generated successfully for {combined_user_name}",
             "period": f"{start_date} to {end_date}",
             "task_id": task_id,
-            "task_name": f"Rapport d'activité - {combined_user_name} ({start_date} au {end_date})",
+            "task_name": f"Rapport Business - {combined_user_name} ({start_date} au {end_date})",
             "report_data": report_data,
             "timestamp": datetime.datetime.now().isoformat()
         }, indent=2)
-        
+
     except Exception as e:
         return json.dumps({
             "status": "error",
@@ -1397,9 +1397,10 @@ def collect_top_clients_data(user_ids: List[int]):
             "top_5": get_top_contact(user_ids, CATEGORY_IDS["top_5"]),
             "tip_top": get_tip_top_contacts(user_ids)
         }
-        
+
     except Exception as e:
         raise Exception(f"Error collecting top clients data: {str(e)}")
+
 
 def format_currency(amount):
     """
@@ -1411,7 +1412,8 @@ def format_currency(amount):
         return f"{float(amount):,.0f} €".replace(",", " ")
     except (ValueError, TypeError):
         return "0 €"
-    
+
+
 def generate_report_html_table(report_data):
     """
     Generate HTML table for business report in Odoo WYSIWYG format
@@ -1422,17 +1424,27 @@ def generate_report_html_table(report_data):
         revenue_data = report_data.get('revenue_data', {})
         metrics_data = report_data.get('metrics_data', {})
         top_clients_data = report_data.get('top_clients_data', {})
-        
+
         # Récupérer les noms d'utilisateurs pour affichage
         user_ids = user_info.get('user_ids', [])
         user_names = user_info.get('user_names', [])
         user_name_map = dict(zip(user_ids, user_names))
-        
+
         html = f"""
         <div class="container">
-            <h2>Rapport d'activité - {user_info.get('combined_user_name', 'N/A')}</h2>
-            <p><strong>Période:</strong> {user_info.get('start_date', 'N/A')} au {user_info.get('end_date', 'N/A')}</p>
-            
+            <h2>Rapport Business - {
+                user_info.get('combined_user_name', 'N/A')
+                }</h2>
+            <p><strong>Période:</strong> {
+                user_info.get(
+                    'start_date', 'N/A'
+                    )
+                    } au {
+                        user_info.get(
+                            'end_date', 'N/A'
+                            )
+                            }</p>
+
             <table class="table table-bordered table-striped" style="width: 100%; border-collapse: collapse; margin-top: 20px;">
                 <thead style="background-color: #f8f9fa;">
                     <tr>
@@ -1442,7 +1454,7 @@ def generate_report_html_table(report_data):
                 </thead>
                 <tbody>
         """
-        
+
         # Section CA (AGRÉGÉ - reste identique)
         for key, value in revenue_data.items():
             if key.startswith('ca_facture_') and key.endswith('_avec_rdv'):
@@ -1594,13 +1606,13 @@ def create_report_task(report_data, project_id, task_column_id):
         start_date = user_info.get('start_date', 'N/A')
         end_date = user_info.get('end_date', 'N/A')
         user_ids = user_info.get('user_ids', [])
-        
+
         # Generate task title
-        task_name = f"Rapport d'activité - {combined_user_name} ({start_date} au {end_date})"
-        
+        task_name = f"Rapport Business - {combined_user_name} ({start_date} au {end_date})"
+
         # Generate HTML table
         html_description = generate_report_html_table(report_data)
-        
+
         # CORRIGÉ: s'assurer qu'aucune valeur None n'est passée
         task_data = {
             'name': task_name,
@@ -1608,19 +1620,19 @@ def create_report_task(report_data, project_id, task_column_id):
             'stage_id': task_column_id,
             'description': html_description,
         }
-        
+
         # Ajouter les assignés seulement s'il y en a
         if user_ids:
             # Assigner à tous les utilisateurs du rapport
             task_data['user_ids'] = [(4, uid) for uid in user_ids if uid is not None]
-        
+
         # Create task using odoo_execute
         result = odoo_execute(
             model='project.task',
             method='create',
             args=[task_data]
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
             task_id = response.get('result')
