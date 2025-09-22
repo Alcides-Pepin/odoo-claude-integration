@@ -883,51 +883,6 @@ def get_orders_count(start_date: str, end_date: str, user_ids: List[int]):
     except Exception as e:
         raise Exception(f"Error getting orders count: {str(e)}")
 
-def get_new_clients_count(start_date: str, end_date: str, user_ids: List[int]):
-    """MODIFIÉ pour supporter plusieurs utilisateurs - version simplifiée agrégée"""
-    try:
-        # Get all orders in period for these users
-        result = odoo_search(
-            model='sale.order',
-            domain=[
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date],
-                ['user_id', 'in', user_ids]  # CHANGÉ
-            ],
-            fields=['partner_id']
-        )
-        
-        response = json.loads(result)
-        if response.get('status') == 'success':
-            # Get unique partner IDs from orders in this period
-            partner_ids = list(set([order['partner_id'][0] for order in response.get('records', []) if order.get('partner_id')]))
-            
-            # For each partner, check if they have any orders before start_date
-            new_clients_count = 0
-            for partner_id in partner_ids:
-                # Check if partner has any previous orders from ANY of our users
-                previous_orders = odoo_search(
-                    model='sale.order',
-                    domain=[
-                        ['partner_id', '=', partner_id],
-                        ['create_date', '<', start_date],
-                        ['user_id', 'in', user_ids]  # CHANGÉ: même équipe
-                    ],
-                    fields=['id'],
-                    limit=1
-                )
-                
-                prev_response = json.loads(previous_orders)
-                if prev_response.get('status') == 'success' and prev_response.get('returned_count', 0) == 0:
-                    new_clients_count += 1
-            
-            return new_clients_count
-        else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
-    except Exception as e:
-        raise Exception(f"Error getting new clients count: {str(e)}")
-
 def get_recommendations_count(start_date: str, end_date: str, user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
     try:
@@ -1056,11 +1011,12 @@ def get_recommendations_count_individual(start_date: str, end_date: str, user_id
     except Exception as e:
         raise Exception(f"Error getting individual recommendations count: {str(e)}")
 
+
 def get_new_clients_count_individual(start_date: str, end_date: str, user_ids: List[int]):
     """Get new clients count for each user individually"""
     try:
         individual_counts = {}
-        
+
         for user_id in user_ids:
             # Get orders in period for this specific user
             result = odoo_search(
@@ -1068,16 +1024,15 @@ def get_new_clients_count_individual(start_date: str, end_date: str, user_ids: L
                 domain=[
                     ['create_date', '>=', start_date],
                     ['create_date', '<=', end_date],
-                    ['user_id', '=', user_id]  # Un seul utilisateur à la fois
                 ],
                 fields=['partner_id']
             )
-            
+
             response = json.loads(result)
             if response.get('status') == 'success':
                 # Get unique partner IDs from orders for this user
                 partner_ids = list(set([order['partner_id'][0] for order in response.get('records', []) if order.get('partner_id')]))
-                
+
                 # For each partner, check if they have any orders before start_date FROM THIS USER
                 new_clients_count = 0
                 for partner_id in partner_ids:
@@ -1315,7 +1270,6 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
             "passer_voir": get_passer_voir_count(start_date, end_date, user_ids),
             "rdv_realises": get_appointments_realized(start_date, end_date, user_ids),
             "nombre_commandes_total": get_orders_count(start_date, end_date, user_ids),
-            "nouveaux_clients_total": get_new_clients_count(start_date, end_date, user_ids),
             "recommandations_total": get_recommendations_count(start_date, end_date, user_ids),
             "livraisons": get_deliveries_count(start_date, end_date, user_ids)
         }
@@ -1344,6 +1298,7 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
     except Exception as e:
         raise Exception(f"Error collecting metrics data: {str(e)}")
 
+
 def get_top_contact(user_ids: List[int], category_id: int):
     """MODIFIÉ pour supporter plusieurs utilisateurs - retourne le premier trouvé"""
     try:
@@ -1356,14 +1311,15 @@ def get_top_contact(user_ids: List[int], category_id: int):
             fields=['name'],
             limit=1
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success' and response.get('records'):
             return response['records'][0]['name']
         return None
-        
+
     except Exception as e:
         raise Exception(f"Error getting top contact: {str(e)}")
+
 
 def get_tip_top_contacts(user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
@@ -1377,14 +1333,15 @@ def get_tip_top_contacts(user_ids: List[int]):
             fields=['name'],
             limit=50
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
             return [contact['name'] for contact in response.get('records', [])]
         return []
-        
+
     except Exception as e:
         raise Exception(f"Error getting tip top contacts: {str(e)}")
+
 
 def collect_top_clients_data(user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
