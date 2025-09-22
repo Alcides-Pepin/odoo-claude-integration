@@ -1722,43 +1722,52 @@ def odoo_activity_report(
             "message": f"Error generating activity report: {str(e)}"
         })
 
-def collect_activities_data(start_date: str, end_date: str, user_id: int):
+
+def collect_activities_data(
+        start_date: str,
+        end_date: str,
+        user_id: int
+        ):
     """Collect all activities data for the report"""
     try:
         today = datetime.datetime.now().strftime('%Y-%m-%d')
-        
+
         # Nombres (comme avant)
         activites_realisees_count = get_activity_count([
             ['active', '=', False],
             ['state', '=', 'done'],
             ['date_done', '>=', start_date],
-            ['date_done', '<=', end_date], 
+            ['date_done', '<=', end_date],
             ['user_id', '=', user_id]
         ])
-        
+
         activites_retard = get_activity_count([
             ['active', '=', True],
             ['state', '!=', 'done'],
             ['date_deadline', '<', today],
             ['user_id', '=', user_id]
         ])
-        
+
         activites_delais = get_activity_count([
             ['active', '=', True],
             ['state', '!=', 'done'],
             ['date_deadline', '>=', today],
             ['user_id', '=', user_id]
         ])
-        
+
         activites_cours_total = get_activity_count([
             ['active', '=', True],
             ['state', '!=', 'done'],
             ['user_id', '=', user_id]
         ])
-        
+
         # Listes détaillées (nouveau)
-        activites_realisees_details = get_completed_activities_details(start_date, end_date, user_id)
-        
+        activites_realisees_details = get_completed_activities_details(
+            start_date,
+            end_date,
+            user_id
+            )
+
         return {
             "activites_realisees": activites_realisees_count,
             "activites_retard": activites_retard,
@@ -1766,11 +1775,16 @@ def collect_activities_data(start_date: str, end_date: str, user_id: int):
             "activites_cours_total": activites_cours_total,
             "activites_realisees_details": activites_realisees_details
         }
-        
+
     except Exception as e:
         raise Exception(f"Error collecting activities data: {str(e)}")
 
-def collect_tasks_data(start_date: str, end_date: str, user_id: int):
+
+def collect_tasks_data(
+        start_date: str,
+        end_date: str,
+        user_id: int
+        ):
     """Collect all tasks data for the report"""
     try:
         today = datetime.datetime.now().strftime('%Y-%m-%d')
