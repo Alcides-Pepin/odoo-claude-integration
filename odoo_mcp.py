@@ -733,12 +733,12 @@ def get_company_invoices_revenue(
 def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
     """
     Collect all revenue data for the business report using dynamic company detection
-    MODIFIÉ pour supporter plusieurs utilisateurs
+    REFACTORISÉ pour générer CA individuel par commercial + totaux par société
     """
     try:
         # Get ALL company IDs for ALL users
         all_company_ids = set()
-        
+
         for user_id in user_ids:
             result = odoo_search(
                 model='res.users',
@@ -746,35 +746,43 @@ def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
                 fields=['company_ids'],
                 limit=1
             )
-            
+
             response = json.loads(result)
-            if response.get('status') == 'success' and response.get('records'):
+            if (response.get('status') == 'success'
+                    and response.get('records')):
                 company_ids = response['records'][0].get('company_ids', [])
                 all_company_ids.update(company_ids)
-        
+
         if not all_company_ids:
-            raise Exception(f"Users {user_ids} have no associated companies")
-        
-        # Calculate revenue for each company (AGRÉGÉ pour tous les utilisateurs)
+            raise Exception(
+                f"Users {user_ids} have no associated companies"
+            )
+
+        # Calculate revenue for each company
         revenue_data = {}
+
         for company_id in all_company_ids:
             company_key = get_company_name(company_id)
-            
-            # 4 métriques agrégées pour tous les utilisateurs
-            revenue_data[f"ca_facture_{company_key}_avec_rdv"] = get_company_invoices_revenue(
-                company_id, start_date, end_date, user_ids, with_opportunities=True
-            )
-            revenue_data[f"ca_facture_{company_key}_sans_rdv"] = get_company_invoices_revenue(
-                company_id, start_date, end_date, user_ids, with_opportunities=False
-            )
-            revenue_data[f"ca_facture_{company_key}_total"] = get_company_invoices_revenue(
-                company_id, start_date, end_date, user_ids, with_opportunities=None
-            )
-        
+            company_total = 0
+
+            # CA individuel pour chaque commercial
+            for user_id in user_ids:
+                individual_ca = get_company_invoices_revenue(
+                    company_id, start_date, end_date, [user_id],
+                    with_opportunities=None
+                )
+                key = f"ca_facture_{company_key}_commercial_{user_id}"
+                revenue_data[key] = individual_ca
+                company_total += individual_ca
+
+            # CA total pour la société
+            revenue_data[f"ca_facture_{company_key}_total"] = company_total
+
         return revenue_data
-        
+
     except Exception as e:
         raise Exception(f"Error collecting revenue data: {str(e)}")
+
 
 def get_appointments_placed(start_date: str, end_date: str, user_ids: List[int]):
     """MODIFIÉ pour supporter plusieurs utilisateurs"""
@@ -1374,7 +1382,7 @@ def format_currency(amount):
 def generate_report_html_table(report_data):
     """
     Generate HTML table for business report in Odoo WYSIWYG format
-    MODIFIÉ pour inclure les listes de clients détaillées
+    REFACTORISÉ pour la nouvelle structure CA individuel + totaux
     """
     try:
         user_info = report_data.get('user_info', {})
@@ -1393,14 +1401,10 @@ def generate_report_html_table(report_data):
                 user_info.get('combined_user_name', 'N/A')
                 }</h2>
             <p><strong>Période:</strong> {
-                user_info.get(
-                    'start_date', 'N/A'
-                    )
-                    } au {
-                        user_info.get(
-                            'end_date', 'N/A'
-                            )
-                            }</p>
+                user_info.get('start_date', 'N/A')
+                } au {
+                    user_info.get('end_date', 'N/A')
+                    }</p>
 
             <table class="table table-bordered table-striped" style="width: 100%; border-collapse: collapse; margin-top: 20px;">
                 <thead style="background-color: #f8f9fa;">
@@ -1412,37 +1416,41 @@ def generate_report_html_table(report_data):
                 <tbody>
         """
 
-        # Section CA (AGRÉGÉ - reste identique)
+        # Section CA - Nouveau format avec individuels + totaux
         for key, value in revenue_data.items():
-            if key.startswith('ca_facture_') and key.endswith('_avec_rdv'):
-                company_name = key.replace('ca_facture_', '').replace('_avec_rdv', '').title()
-                label = f"Chiffre d'affaires des factures de {company_name} réalisé suite à des rendez-vous"
+            if key.startswith('ca_facture_') and 'commercial_' in key:
+                # Extraire société et user_id
+                parts = key.split('_')
+                company_name = parts[2].title()  # ca_facture_[company]_commercial_[id]
+                user_id = int(parts[-1])
+                user_name = user_name_map.get(user_id, f"User {user_id}")
+                
+                label = (f"Chiffre d'affaires facturé HT {company_name} "
+                        f"- {user_name}")
                 style = ""
-            elif key.startswith('ca_facture_') and key.endswith('_sans_rdv'):
-                company_name = key.replace('ca_facture_', '').replace('_sans_rdv', '').title()
-                label = f"Chiffre d'affaires des factures de {company_name} réalisé sans rendez-vous"
-                style = ""
+                
             elif key.startswith('ca_facture_') and key.endswith('_total'):
+                # Total par société
                 company_name = key.replace('ca_facture_', '').replace('_total', '').title()
-                label = f"Chiffre d'affaires {company_name} Total Facturé"
+                label = f"Chiffre d'affaires Total facturé HT {company_name}"
                 style = "background-color: #e9ecef; font-weight: bold;"
             else:
                 continue
-                
+
             html += f"""
                     <tr style="{style}">
                         <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
                         <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{format_currency(value)}</td>
                     </tr>
             """
-        
+
         # Section métriques AGRÉGÉES (celles qui restent combinées)
         aggregated_labels = {
-            "passer_voir": "Passer Voir", 
+            "passer_voir": "Passer Voir",
             "rdv_realises": "Rendez-vous réalisés",
             "livraisons": "Livraisons"
         }
-        
+
         for key, label in aggregated_labels.items():
             value = metrics_data.get(key, 0)
             html += f"""
@@ -1451,24 +1459,30 @@ def generate_report_html_table(report_data):
                         <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{value}</td>
                     </tr>
             """
-        
+
         # Section métriques INDIVIDUELLES avec détails
         individual_metrics = {
             "rdv_places_individual": ("Nombre de rendez-vous placés", None),
-            "nombre_commandes_individual": ("Nombre de commandes", None), 
-            "recommandations_individual": ("Nombre de recommandations", "recommandations_details_individual"),
-            "nouveaux_clients_individual": ("Nombre de nouveaux clients", "nouveaux_clients_details_individual")
+            "nombre_commandes_individual": ("Nombre de commandes", None),
+            "recommandations_individual": (
+                "Nombre de recommandations",
+                "recommandations_details_individual"
+            ),
+            "nouveaux_clients_individual": (
+                "Nombre de nouveaux clients",
+                "nouveaux_clients_details_individual"
+            )
         }
-        
+
         for metric_key, (base_label, details_key) in individual_metrics.items():
             individual_data = metrics_data.get(metric_key, {})
             details_data = metrics_data.get(details_key, {}) if details_key else {}
-            
+
             if individual_data:
                 for user_id, count in individual_data.items():
                     user_name = user_name_map.get(user_id, f"User {user_id}")
                     label = f"{base_label} - {user_name}"
-                    
+
                     # Ligne avec le nombre
                     html += f"""
                             <tr>
@@ -1476,7 +1490,7 @@ def generate_report_html_table(report_data):
                                 <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{count}</td>
                             </tr>
                     """
-                    
+
                     # Ligne avec les détails (si applicable)
                     if details_key and user_id in details_data:
                         clients = details_data[user_id]
@@ -1485,20 +1499,20 @@ def generate_report_html_table(report_data):
                                 detail_label = f"Contacts recommandés - {user_name}"
                             else:  # nouveaux_clients_details_individual
                                 detail_label = f"Nouveaux clients - {user_name}"
-                            
+
                             # Créer liste à puces avec liens
                             clients_list = "<br>".join([
                                 f"• <a href='{ODOO_URL}/web#id={client['id']}&model=res.partner&view_type=form'>{client['name']}</a>"
                                 for client in clients
                             ])
-                            
+
                             html += f"""
                                     <tr>
                                         <td style="border: 1px solid #dee2e6; padding: 10px;">{detail_label}</td>
                                         <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{clients_list}</td>
                                     </tr>
                             """
-        
+
         # Section lignes vides pour saisie manuelle
         html += f"""
                 <tr style="background-color: #fff3cd;">
@@ -1510,43 +1524,44 @@ def generate_report_html_table(report_data):
                     <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right; font-style: italic; color: #6c757d;">À remplir</td>
                 </tr>
         """
-        
+
         # Section Top clients (AGRÉGÉ - reste identique)
         top_labels = {
             "top_1": "Top 1",
             "top_2": "Top 2",
-            "top_3": "Top 3", 
+            "top_3": "Top 3",
             "top_4": "Top 4",
             "top_5": "Top 5",
             "tip_top": "Tip Top"
         }
-        
+
         for key, label in top_labels.items():
             value = top_clients_data.get(key)
-            
+
             if key == "tip_top" and isinstance(value, list):
                 display_value = ", ".join(value) if value else "Aucun"
             else:
                 display_value = value if value else "Aucun"
-                
+
             html += f"""
                     <tr>
                         <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
                         <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{display_value}</td>
                     </tr>
             """
-        
+
         html += """
                 </tbody>
             </table>
         </div>
         """
-        
+
         return html
-        
+
     except Exception as e:
         raise Exception(f"Error generating HTML table: {str(e)}")
-    
+
+
 def create_report_task(report_data, project_id, task_column_id):
     """
     Create an Odoo task with the business report
