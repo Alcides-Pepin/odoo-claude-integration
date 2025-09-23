@@ -669,10 +669,17 @@ def get_company_revenue(company_id: int, start_date: str, end_date: str, user_id
     except Exception as e:
         raise Exception(f"Error calculating revenue: {str(e)}")
 
-def get_company_invoices_revenue(company_id: int, start_date: str, end_date: str, user_ids: List[int], with_opportunities=None):
+
+def get_company_invoices_revenue(
+    company_id: int,
+    start_date: str,
+    end_date: str,
+    user_ids: List[int],
+    with_opportunities=None
+):
     """
-    Fonction pour calculer le CA facturé (account.move) basé sur les opportunités
-    MODIFIÉ pour supporter plusieurs utilisateurs
+    Fonction pour calculer le CA facturé HT (account.move) basé sur les opportunités
+    MODIFIÉ pour supporter plusieurs utilisateurs et CA HT
     """
     try:
         # Build domain for account.move (invoices)
@@ -680,69 +687,48 @@ def get_company_invoices_revenue(company_id: int, start_date: str, end_date: str
             ['company_id', '=', company_id],
             ['invoice_date', '>=', start_date],
             ['invoice_date', '<=', end_date],
-            ['invoice_user_id', 'in', user_ids],  # CHANGÉ: 'in' au lieu de '='
+            ['invoice_user_id', 'in', user_ids],
             ['move_type', '=', 'out_invoice'],
             ['state', '=', 'posted']
         ]
-        
+
         # Add opportunities filter
         if with_opportunities is True:
-            domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '!=', False])
+            domain.append([
+                'invoice_line_ids.sale_line_ids.order_id.opportunity_id',
+                '!=',
+                False
+            ])
         elif with_opportunities is False:
-            domain.append(['invoice_line_ids.sale_line_ids.order_id.opportunity_id', '=', False])
-        
+            domain.append([
+                'invoice_line_ids.sale_line_ids.order_id.opportunity_id',
+                '=',
+                False
+            ])
+
         # Search invoices
         result = odoo_search(
             model='account.move',
             domain=domain,
-            fields=['amount_total'],
+            fields=['amount_untaxed'],
             limit=100
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
             records = response.get('records', [])
-            total_revenue = sum(record.get('amount_total', 0) for record in records)
+            total_revenue = sum(
+                record.get('amount_untaxed', 0) for record in records
+            )
             return total_revenue
         else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
+            raise Exception(
+                f"Search failed: {response.get('error', 'Unknown error')}"
+            )
+
     except Exception as e:
         raise Exception(f"Error calculating invoiced revenue: {str(e)}")
 
-def get_company_orders_revenue(company_id: int, start_date: str, end_date: str, user_ids: List[int]):
-    """
-    Fonction pour calculer le CA commandé (sale.order) NON ENCORE FACTURÉ
-    MODIFIÉ pour supporter plusieurs utilisateurs
-    """
-    try:
-        # Build domain for sale.order (orders not fully invoiced)
-        domain = [
-            ['company_id', '=', company_id],
-            ['date_order', '>=', start_date],
-            ['date_order', '<=', end_date],
-            ['user_id', 'in', user_ids],  # CHANGÉ: 'in' au lieu de '='
-            ['invoice_status', '!=', 'invoiced']
-        ]
-        
-        # Search orders
-        result = odoo_search(
-            model='sale.order',
-            domain=domain,
-            fields=['amount_total'],
-            limit=100
-        )
-        
-        response = json.loads(result)
-        if response.get('status') == 'success':
-            records = response.get('records', [])
-            total_revenue = sum(record.get('amount_total', 0) for record in records)
-            return total_revenue
-        else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
-    except Exception as e:
-        raise Exception(f"Error calculating ordered revenue: {str(e)}")
 
 def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
     """
@@ -780,9 +766,6 @@ def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
             )
             revenue_data[f"ca_facture_{company_key}_sans_rdv"] = get_company_invoices_revenue(
                 company_id, start_date, end_date, user_ids, with_opportunities=False
-            )
-            revenue_data[f"ca_commande_{company_key}_total"] = get_company_orders_revenue(
-                company_id, start_date, end_date, user_ids
             )
             revenue_data[f"ca_facture_{company_key}_total"] = get_company_invoices_revenue(
                 company_id, start_date, end_date, user_ids, with_opportunities=None
@@ -1438,10 +1421,6 @@ def generate_report_html_table(report_data):
             elif key.startswith('ca_facture_') and key.endswith('_sans_rdv'):
                 company_name = key.replace('ca_facture_', '').replace('_sans_rdv', '').title()
                 label = f"Chiffre d'affaires des factures de {company_name} réalisé sans rendez-vous"
-                style = ""
-            elif key.startswith('ca_commande_') and key.endswith('_total'):
-                company_name = key.replace('ca_commande_', '').replace('_total', '').title()
-                label = f"Chiffre d'affaires {company_name} Total Commandé"
                 style = ""
             elif key.startswith('ca_facture_') and key.endswith('_total'):
                 company_name = key.replace('ca_facture_', '').replace('_total', '').title()
