@@ -6,7 +6,6 @@ import socket
 import time
 from typing import Any, List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
-import time
 import openai
 import anthropic
 import google.generativeai as genai
@@ -20,6 +19,10 @@ ODOO_URL = os.getenv('ODOO_URL')
 ODOO_DB = os.getenv('ODOO_DB')
 ODOO_USER = os.getenv('ODOO_USER')
 ODOO_PASSWORD = os.getenv('ODOO_PASSWORD')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')  
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+
 TIMEOUT = 30
 
 # Security blacklist - operations that should never be allowed
