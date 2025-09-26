@@ -2499,6 +2499,7 @@ def test_openai_api(prompt):
     except Exception as e:
         return {"error": str(e), "time_seconds": 0, "cost_usd": 0}
 
+
 def test_anthropic_api(prompt):
     """Test Anthropic Claude Haiku 3 API"""
     try:
@@ -2534,6 +2535,7 @@ def test_anthropic_api(prompt):
         
     except Exception as e:
         return {"error": str(e), "time_seconds": 0, "cost_usd": 0}
+
 
 def test_google_api(prompt):
     """Test Google Gemini 2.5 Flash API"""
