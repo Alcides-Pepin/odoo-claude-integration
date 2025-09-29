@@ -2432,6 +2432,8 @@ def odoo_test_api_comparison(
         activities_data = report_data.get('activities_data', {})
         tasks_data = report_data.get('tasks_data', {})
         projects_data = report_data.get('projects_data', {})
+        user_info = report_data.get('user_info', {})
+        user_name = user_info.get('user_name', 'cet utilisateur')
         
         # Create test prompt with detailed information
         test_data_summary = f"""
@@ -2500,8 +2502,8 @@ STATISTIQUES GÉNÉRALES:
 - Projets en retard: {projects_data.get('projets_retard', 0)}
         """
         
-        # Create narrative-focused prompt
-        prompt = f"""Écris un résumé en quelques paragraphes des activités de cette semaine. Raconte ce qui s'est passé comme une histoire : quels projets ont avancé, pourquoi, et quel impact business. Évite les listes à puces, écris en prose naturelle.
+        # Create narrative-focused prompt with user name
+        prompt = f"""Écris un résumé en 2-3 paragraphes des activités de {user_name} cette semaine. Raconte ce qui s'est passé comme une histoire : sur quels projets {user_name} a travaillé, pourquoi, et quel impact business. Évite les listes à puces, écris en prose naturelle en parlant de {user_name} à la troisième personne.
 
 Données :{test_data_summary}"""
         
