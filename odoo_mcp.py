@@ -1892,7 +1892,7 @@ def get_completed_activities_details(start_date: str, end_date: str, user_id: in
                 ['date_done', '<=', end_date], 
                 ['user_id', '=', user_id]
             ],
-            fields=['id', 'summary', 'date_done', 'res_model', 'res_id'],
+            fields=['id', 'summary', 'date_done', 'res_model', 'res_id', 'note', 'activity_type_id'],
             limit=50
         )
         
@@ -1901,10 +1901,21 @@ def get_completed_activities_details(start_date: str, end_date: str, user_id: in
             activities = []
             for activity in response.get('records', []):
                 activity_url = f"{ODOO_URL}/web#id={activity['id']}&model=mail.activity&view_type=form"
+                # Extract additional fields
+                note = activity.get('note', '') or ''
+                # Clean HTML from note
+                import re
+                note_clean = re.sub(r'<[^>]*>', '', note).strip() if note else ''
+                activity_type = activity.get('activity_type_id', [False, 'N/A'])[1] if activity.get('activity_type_id') else 'N/A'
+                related_model = activity.get('res_model', 'N/A')
+
                 activities.append({
                     'name': activity.get('summary', 'Activité sans nom'),
                     'url': activity_url,
-                    'date': activity.get('date_done', '')
+                    'date': activity.get('date_done', ''),
+                    'note': note_clean[:200] + '...' if len(note_clean) > 200 else note_clean,
+                    'type': activity_type,
+                    'related_model': related_model
                 })
             return activities
         return []
@@ -1923,7 +1934,7 @@ def get_completed_tasks_details(start_date: str, end_date: str, user_id: int):
                 ['date_last_stage_update', '>=', start_date],
                 ['date_last_stage_update', '<=', end_date]
             ],
-            fields=['id', 'name', 'date_last_stage_update', 'project_id'],
+            fields=['id', 'name', 'date_last_stage_update', 'project_id', 'description', 'tag_ids', 'partner_id'],
             limit=50
         )
         
@@ -1932,11 +1943,22 @@ def get_completed_tasks_details(start_date: str, end_date: str, user_id: int):
             tasks = []
             for task in response.get('records', []):
                 task_url = f"{ODOO_URL}/web#id={task['id']}&model=project.task&view_type=form"
+                # Extract additional fields
+                project_name = task.get('project_id', [False, 'N/A'])[1] if task.get('project_id') else 'N/A'
+                client_name = task.get('partner_id', [False, 'N/A'])[1] if task.get('partner_id') else 'N/A'
+                description = task.get('description', '') or ''
+                # Clean HTML from description
+                import re
+                description_clean = re.sub(r'<[^>]*>', '', description).strip() if description else ''
+
                 tasks.append({
                     'name': task.get('name', 'Tâche sans nom'),
                     'url': task_url,
                     'date': task.get('date_last_stage_update', ''),
-                    'project': task.get('project_id', [False, 'N/A'])[1] if task.get('project_id') else 'N/A'
+                    'project': project_name,
+                    'client': client_name,
+                    'description': description_clean[:200] + '...' if len(description_clean) > 200 else description_clean,
+                    'tag_ids': task.get('tag_ids', [])
                 })
             return tasks
         return []
@@ -1982,7 +2004,7 @@ def get_completed_projects_details(start_date: str, end_date: str, user_id: int)
                 ['user_id', '=', user_id],
                 ['favorite_user_ids', 'in', [user_id]]
             ],
-            fields=['id', 'name'],
+            fields=['id', 'name', 'description', 'partner_id', 'tag_ids'],
             limit=50
         )
         
@@ -1991,10 +2013,20 @@ def get_completed_projects_details(start_date: str, end_date: str, user_id: int)
             projects = []
             for project in projects_response.get('records', []):
                 project_url = f"{ODOO_URL}/web#id={project['id']}&model=project.project&view_type=kanban"
+                # Extract additional fields
+                description = project.get('description', '') or ''
+                # Clean HTML from description
+                import re
+                description_clean = re.sub(r'<[^>]*>', '', description).strip() if description else ''
+                client_name = project.get('partner_id', [False, 'N/A'])[1] if project.get('partner_id') else 'N/A'
+
                 projects.append({
                     'name': project.get('name', 'Projet sans nom'),
                     'url': project_url,
-                    'date': project_updates.get(project['id'], '')
+                    'date': project_updates.get(project['id'], ''),
+                    'description': description_clean[:200] + '...' if len(description_clean) > 200 else description_clean,
+                    'client': client_name,
+                    'tag_ids': project.get('tag_ids', [])
                 })
             return projects
         return []
@@ -2407,11 +2439,17 @@ Données d'activité de la semaine du {test_start_date} au {test_end_date}:
 
 ACTIVITÉS RÉALISÉES ({activities_data.get('activites_realisees', 0)}):"""
 
-        # Add completed activities details
+        # Add completed activities details with enriched data
         activites_details = activities_data.get('activites_realisees_details', [])
         if activites_details:
             for activity in activites_details:
+                activity_type = activity.get('type', 'N/A')
+                note = activity.get('note', '')
                 test_data_summary += f"\n- {activity.get('name', 'Activité sans nom')} (le {activity.get('date', 'N/A')})"
+                if activity_type != 'N/A':
+                    test_data_summary += f" [Type: {activity_type}]"
+                if note:
+                    test_data_summary += f" - {note}"
         else:
             test_data_summary += "\n- Aucune activité réalisée"
 
@@ -2419,12 +2457,20 @@ ACTIVITÉS RÉALISÉES ({activities_data.get('activites_realisees', 0)}):"""
 
 TÂCHES RÉALISÉES ({tasks_data.get('taches_realisees', 0)}):"""
 
-        # Add completed tasks details
+        # Add completed tasks details with enriched data
         taches_details = tasks_data.get('taches_realisees_details', [])
         if taches_details:
             for task in taches_details:
-                project_name = task.get('project_name', 'Projet non spécifié')
-                test_data_summary += f"\n- {task.get('name', 'Tâche sans nom')} (Projet: {project_name})"
+                project_name = task.get('project', 'Projet non spécifié')
+                client_name = task.get('client', 'N/A')
+                description = task.get('description', '')
+                test_data_summary += f"\n- {task.get('name', 'Tâche sans nom')}"
+                if project_name != 'Projet non spécifié':
+                    test_data_summary += f" (Projet: {project_name})"
+                if client_name != 'N/A':
+                    test_data_summary += f" [Client: {client_name}]"
+                if description:
+                    test_data_summary += f" - {description}"
         else:
             test_data_summary += "\n- Aucune tâche réalisée"
 
@@ -2432,11 +2478,17 @@ TÂCHES RÉALISÉES ({tasks_data.get('taches_realisees', 0)}):"""
 
 PROJETS RÉALISÉS ({projects_data.get('projets_realises', 0)}):"""
 
-        # Add completed projects details
+        # Add completed projects details with enriched data
         projets_details = projects_data.get('projets_realises_details', [])
         if projets_details:
             for project in projets_details:
+                client_name = project.get('client', 'N/A')
+                description = project.get('description', '')
                 test_data_summary += f"\n- {project.get('name', 'Projet sans nom')} (finalisé le {project.get('date', 'N/A')})"
+                if client_name != 'N/A':
+                    test_data_summary += f" [Client: {client_name}]"
+                if description:
+                    test_data_summary += f" - {description}"
         else:
             test_data_summary += "\n- Aucun projet réalisé"
 
@@ -2448,7 +2500,14 @@ STATISTIQUES GÉNÉRALES:
 - Projets en retard: {projects_data.get('projets_retard', 0)}
         """
         
-        prompt = f"Résume en un paragraphe les activités de cette semaine : {test_data_summary}"
+        # Create new business-focused prompt
+        prompt = f"""Analyse ces données d'activité et identifie :
+1. Les thèmes/projets principaux de la semaine
+2. Pour chaque thème : objectif business et tâches associées
+3. Les priorités stratégiques vs opérationnelles
+4. Synthèse en 1 paragraphe orienté résultats business
+
+Données :{test_data_summary}"""
         
         # Test results container
         api_results = {}
