@@ -2401,24 +2401,51 @@ def odoo_test_api_comparison(
         tasks_data = report_data.get('tasks_data', {})
         projects_data = report_data.get('projects_data', {})
         
-        # Create test prompt
+        # Create test prompt with detailed information
         test_data_summary = f"""
 Données d'activité de la semaine du {test_start_date} au {test_end_date}:
 
-ACTIVITÉS:
-- Activités réalisées: {activities_data.get('activites_realisees', 0)}
+ACTIVITÉS RÉALISÉES ({activities_data.get('activites_realisees', 0)}):"""
+
+        # Add completed activities details
+        activites_details = activities_data.get('activites_realisees_details', [])
+        if activites_details:
+            for activity in activites_details:
+                test_data_summary += f"\n- {activity.get('name', 'Activité sans nom')} (le {activity.get('date', 'N/A')})"
+        else:
+            test_data_summary += "\n- Aucune activité réalisée"
+
+        test_data_summary += f"""
+
+TÂCHES RÉALISÉES ({tasks_data.get('taches_realisees', 0)}):"""
+
+        # Add completed tasks details
+        taches_details = tasks_data.get('taches_realisees_details', [])
+        if taches_details:
+            for task in taches_details:
+                project_name = task.get('project_name', 'Projet non spécifié')
+                test_data_summary += f"\n- {task.get('name', 'Tâche sans nom')} (Projet: {project_name})"
+        else:
+            test_data_summary += "\n- Aucune tâche réalisée"
+
+        test_data_summary += f"""
+
+PROJETS RÉALISÉS ({projects_data.get('projets_realises', 0)}):"""
+
+        # Add completed projects details
+        projets_details = projects_data.get('projets_realises_details', [])
+        if projets_details:
+            for project in projets_details:
+                test_data_summary += f"\n- {project.get('name', 'Projet sans nom')} (finalisé le {project.get('date', 'N/A')})"
+        else:
+            test_data_summary += "\n- Aucun projet réalisé"
+
+        test_data_summary += f"""
+
+STATISTIQUES GÉNÉRALES:
 - Activités en retard: {activities_data.get('activites_retard', 0)}
-- Activités dans les délais: {activities_data.get('activites_delais', 0)}
-
-TÂCHES:
-- Tâches réalisées: {tasks_data.get('taches_realisees', 0)}
 - Tâches en retard: {tasks_data.get('taches_retard', 0)}
-- Tâches dans les délais: {tasks_data.get('taches_delais', 0)}
-
-PROJETS:
-- Projets réalisés: {projects_data.get('projets_realises', 0)}
 - Projets en retard: {projects_data.get('projets_retard', 0)}
-- Projets dans les délais: {projects_data.get('projets_delais', 0)}
         """
         
         prompt = f"Résume en un paragraphe les activités de cette semaine : {test_data_summary}"
