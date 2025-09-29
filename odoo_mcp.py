@@ -2500,12 +2500,8 @@ STATISTIQUES GÉNÉRALES:
 - Projets en retard: {projects_data.get('projets_retard', 0)}
         """
         
-        # Create new business-focused prompt
-        prompt = f"""Analyse ces données d'activité et identifie :
-1. Les thèmes/projets principaux de la semaine
-2. Pour chaque thème : objectif business et tâches associées
-3. Les priorités stratégiques vs opérationnelles
-4. Synthèse en 1 paragraphe orienté résultats business
+        # Create narrative-focused prompt
+        prompt = f"""Écris un résumé en quelques paragraphes des activités de cette semaine. Raconte ce qui s'est passé comme une histoire : quels projets ont avancé, pourquoi, et quel impact business. Évite les listes à puces, écris en prose naturelle.
 
 Données :{test_data_summary}"""
         
