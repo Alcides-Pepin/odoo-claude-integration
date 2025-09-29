@@ -6,9 +6,7 @@ import socket
 import time
 from typing import Any, List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
-import openai
 import anthropic
-import google.generativeai as genai
 
 # Get port from environment variable
 # (Railway/Render sets this, defaults to 8001 for local dev)
@@ -19,9 +17,7 @@ ODOO_URL = os.getenv('ODOO_URL')
 ODOO_DB = os.getenv('ODOO_DB')
 ODOO_USER = os.getenv('ODOO_USER')
 ODOO_PASSWORD = os.getenv('ODOO_PASSWORD')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')  
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 TIMEOUT = 30
 
@@ -2303,12 +2299,32 @@ def generate_activity_report_html_table(report_data):
                     </tr>
             """
         
+        # Add Claude AI summary row
+        html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">RÉSUMÉ IA</td></tr>'
+
+        # Generate Claude summary
+        user_name = user_info.get('user_name', 'cet utilisateur')
+        start_date = user_info.get('start_date', '')
+        end_date = user_info.get('end_date', '')
+
+        claude_summary = generate_claude_summary(
+            activities_data, tasks_data, projects_data,
+            user_name, start_date, end_date
+        )
+
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;"><strong>Résumé des activités</strong></td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left;">{claude_summary}</td>
+                </tr>
+        """
+
         html += """
                 </tbody>
             </table>
         </div>
         """
-        
+
         return html
         
     except Exception as e:
@@ -2350,375 +2366,6 @@ def create_activity_report_task(report_data, project_id, task_column_id):
             
     except Exception as e:
         raise Exception(f"Error creating activity report task: {str(e)}")
-
-
-@mcp.tool()
-def odoo_test_api_comparison(
-    test_user_id: int = 1,
-    test_start_date: str = None,
-    test_end_date: str = None
-) -> str:
-    """
-    Test comparison of 3 AI APIs (GPT-4o Mini, Claude Haiku 3, Gemini 2.5 Flash) 
-    for generating activity summaries from Odoo data.
-    
-    Args:
-        test_user_id: User ID to test with (default: 1)
-        test_start_date: Start date for test data (default: last Monday)
-        test_end_date: End date for test data (default: last Friday)
-    
-    Returns:
-        JSON string with API comparison results
-    """
-    try:
-        # Set default dates to last week if not provided
-        if not test_start_date or not test_end_date:
-            today = datetime.datetime.now()
-            last_monday = today - datetime.timedelta(days=today.weekday() + 7)
-            last_friday = last_monday + datetime.timedelta(days=4)
-            test_start_date = last_monday.strftime('%Y-%m-%d')
-            test_end_date = last_friday.strftime('%Y-%m-%d')
-
-        # Get test data using existing activity report
-        print(f"Generating test data for user {test_user_id} from {test_start_date} to {test_end_date}")
-        
-        # Create a temporary project and task for the test
-        temp_project_result = odoo_execute(
-            model='project.project',
-            method='create',
-            args=[{'name': 'Test API Comparison - Temp'}]
-        )
-        temp_project_response = json.loads(temp_project_result)
-        if temp_project_response.get('status') != 'success':
-            raise Exception("Failed to create temporary project")
-        
-        temp_project_id = temp_project_response.get('result')
-        
-        # Get first task stage/column
-        stages_result = odoo_search(
-            model='project.task.type',
-            domain=[],
-            fields=['id'],
-            limit=1
-        )
-        stages_response = json.loads(stages_result)
-        if stages_response.get('status') != 'success' or not stages_response.get('records'):
-            raise Exception("Failed to get task stages")
-        
-        temp_column_id = stages_response['records'][0]['id']
-        
-        # Generate activity report for test data
-        activity_report_result = odoo_activity_report(
-            user_id=test_user_id,
-            start_date=test_start_date,
-            end_date=test_end_date,
-            project_id=temp_project_id,
-            task_column_id=temp_column_id
-        )
-        
-        # Clean up temporary project
-        odoo_execute(
-            model='project.project',
-            method='unlink',
-            args=[[temp_project_id]]
-        )
-        
-        activity_data = json.loads(activity_report_result)
-        if activity_data.get('status') != 'success':
-            raise Exception(f"Failed to generate activity report: {activity_data.get('message', 'Unknown error')}")
-
-        # Extract relevant data for summarization
-        report_data = activity_data.get('report_data', {})
-        activities_data = report_data.get('activities_data', {})
-        tasks_data = report_data.get('tasks_data', {})
-        projects_data = report_data.get('projects_data', {})
-        user_info = report_data.get('user_info', {})
-        user_name = user_info.get('user_name', 'cet utilisateur')
-        
-        # Create test prompt with detailed information
-        test_data_summary = f"""
-Données d'activité de la semaine du {test_start_date} au {test_end_date}:
-
-ACTIVITÉS RÉALISÉES ({activities_data.get('activites_realisees', 0)}):"""
-
-        # Add completed activities details with enriched data
-        activites_details = activities_data.get('activites_realisees_details', [])
-        if activites_details:
-            for activity in activites_details:
-                activity_type = activity.get('type', 'N/A')
-                note = activity.get('note', '')
-                test_data_summary += f"\n- {activity.get('name', 'Activité sans nom')} (le {activity.get('date', 'N/A')})"
-                if activity_type != 'N/A':
-                    test_data_summary += f" [Type: {activity_type}]"
-                if note:
-                    test_data_summary += f" - {note}"
-        else:
-            test_data_summary += "\n- Aucune activité réalisée"
-
-        test_data_summary += f"""
-
-TÂCHES RÉALISÉES ({tasks_data.get('taches_realisees', 0)}):"""
-
-        # Add completed tasks details with enriched data
-        taches_details = tasks_data.get('taches_realisees_details', [])
-        if taches_details:
-            for task in taches_details:
-                project_name = task.get('project', 'Projet non spécifié')
-                client_name = task.get('client', 'N/A')
-                description = task.get('description', '')
-                test_data_summary += f"\n- {task.get('name', 'Tâche sans nom')}"
-                if project_name != 'Projet non spécifié':
-                    test_data_summary += f" (Projet: {project_name})"
-                if client_name != 'N/A':
-                    test_data_summary += f" [Client: {client_name}]"
-                if description:
-                    test_data_summary += f" - {description}"
-        else:
-            test_data_summary += "\n- Aucune tâche réalisée"
-
-        test_data_summary += f"""
-
-PROJETS RÉALISÉS ({projects_data.get('projets_realises', 0)}):"""
-
-        # Add completed projects details with enriched data
-        projets_details = projects_data.get('projets_realises_details', [])
-        if projets_details:
-            for project in projets_details:
-                client_name = project.get('client', 'N/A')
-                description = project.get('description', '')
-                test_data_summary += f"\n- {project.get('name', 'Projet sans nom')} (finalisé le {project.get('date', 'N/A')})"
-                if client_name != 'N/A':
-                    test_data_summary += f" [Client: {client_name}]"
-                if description:
-                    test_data_summary += f" - {description}"
-        else:
-            test_data_summary += "\n- Aucun projet réalisé"
-
-        test_data_summary += f"""
-
-STATISTIQUES GÉNÉRALES:
-- Activités en retard: {activities_data.get('activites_retard', 0)}
-- Tâches en retard: {tasks_data.get('taches_retard', 0)}
-- Projets en retard: {projects_data.get('projets_retard', 0)}
-        """
-        
-        # Create narrative-focused prompt with user name
-        prompt = f"""Écris un résumé en 2-3 paragraphes des activités de {user_name} cette semaine. Raconte ce qui s'est passé comme une histoire : sur quels projets {user_name} a travaillé, pourquoi, et quel impact business. Évite les listes à puces, écris en prose naturelle en parlant de {user_name} à la troisième personne.
-
-Données :{test_data_summary}"""
-        
-        # Test results container
-        api_results = {}
-        
-        # Test GPT-4o Mini
-        print("Testing OpenAI GPT-4o Mini...")
-        api_results['gpt4o_mini'] = test_openai_api(prompt)
-        
-        # Test Claude Haiku 3
-        print("Testing Anthropic Claude Haiku 3...")
-        api_results['claude_haiku'] = test_anthropic_api(prompt)
-        
-        # Test Gemini 2.5 Flash
-        print("Testing Google Gemini 2.5 Flash...")
-        api_results['gemini_flash'] = test_google_api(prompt)
-        
-        # Generate comparison
-        comparison = generate_api_comparison(api_results)
-        
-        result = {
-            "status": "success",
-            "test_parameters": {
-                "user_id": test_user_id,
-                "start_date": test_start_date,
-                "end_date": test_end_date,
-                "prompt": prompt
-            },
-            "test_data_summary": test_data_summary,
-            "api_results": api_results,
-            "comparison": comparison,
-            "timestamp": datetime.datetime.now().isoformat()
-        }
-        
-        return json.dumps(result, indent=2)
-        
-    except Exception as e:
-        return json.dumps({
-            "status": "error",
-            "message": f"API comparison test failed: {str(e)}"
-        })
-
-def test_openai_api(prompt):
-    """Test OpenAI GPT-4o Mini API"""
-    try:
-        if not OPENAI_API_KEY:
-            return {"error": "OPENAI_API_KEY not set", "time": 0, "cost": 0}
-        
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
-        start_time = time.time()
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=500,
-            temperature=0.7
-        )
-        end_time = time.time()
-        
-        response_time = end_time - start_time
-        
-        # Calculate cost (GPT-4o Mini: $0.00015/1K input + $0.0006/1K output)
-        input_tokens = response.usage.prompt_tokens
-        output_tokens = response.usage.completion_tokens
-        cost = (input_tokens * 0.00015 / 1000) + (output_tokens * 0.0006 / 1000)
-        
-        return {
-            "response": response.choices[0].message.content,
-            "time_seconds": round(response_time, 2),
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cost_usd": round(cost, 6),
-            "error": None
-        }
-        
-    except Exception as e:
-        return {"error": str(e), "time_seconds": 0, "cost_usd": 0}
-
-
-def test_anthropic_api(prompt):
-    """Test Anthropic Claude Haiku 3 API"""
-    try:
-        if not ANTHROPIC_API_KEY:
-            return {"error": "ANTHROPIC_API_KEY not set", "time_seconds": 0, "cost_usd": 0}
-        
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        
-        start_time = time.time()
-        response = client.messages.create(
-            model="claude-3-haiku-20240307",
-            max_tokens=500,
-            temperature=0.7,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        end_time = time.time()
-        
-        response_time = end_time - start_time
-        
-        # Calculate cost (Claude Haiku: $0.00025/1K input + $0.00125/1K output)
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
-        cost = (input_tokens * 0.00025 / 1000) + (output_tokens * 0.00125 / 1000)
-        
-        return {
-            "response": response.content[0].text,
-            "time_seconds": round(response_time, 2),
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cost_usd": round(cost, 6),
-            "error": None
-        }
-        
-    except Exception as e:
-        return {"error": str(e), "time_seconds": 0, "cost_usd": 0}
-
-
-def test_google_api(prompt):
-    """Test Google Gemini 2.5 Flash API"""
-    try:
-        if not GOOGLE_API_KEY:
-            return {"error": "GOOGLE_API_KEY not set", "time_seconds": 0, "cost_usd": 0}
-        
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        
-        start_time = time.time()
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=500,
-                temperature=0.7,
-            )
-        )
-        end_time = time.time()
-        
-        response_time = end_time - start_time
-        
-        # Calculate approximate cost (Gemini 2.5 Flash: $0.000275/1K input + $0.0011/1K output)
-        # Note: Actual token counting may vary, this is an approximation
-        input_tokens = len(prompt.split()) * 1.3  # Rough approximation
-        output_tokens = len(response.text.split()) * 1.3  # Rough approximation
-        cost = (input_tokens * 0.000275 / 1000) + (output_tokens * 0.0011 / 1000)
-        
-        return {
-            "response": response.text,
-            "time_seconds": round(response_time, 2),
-            "input_tokens": int(input_tokens),
-            "output_tokens": int(output_tokens),
-            "cost_usd": round(cost, 6),
-            "error": None
-        }
-        
-    except Exception as e:
-        return {"error": str(e), "time_seconds": 0, "cost_usd": 0}
-
-def generate_api_comparison(api_results):
-    """Generate comparison analysis of the three APIs"""
-    comparison = {
-        "performance": {},
-        "costs": {},
-        "reliability": {},
-        "recommendation": ""
-    }
-    
-    # Performance comparison
-    times = {}
-    for api, result in api_results.items():
-        if result.get("error"):
-            times[api] = float('inf')
-        else:
-            times[api] = result.get("time_seconds", 0)
-    
-    fastest_api = min(times, key=times.get) if times else None
-    comparison["performance"] = {
-        "fastest": fastest_api,
-        "response_times": times
-    }
-    
-    # Cost comparison
-    costs = {}
-    for api, result in api_results.items():
-        costs[api] = result.get("cost_usd", 0)
-    
-    cheapest_api = min(costs, key=costs.get) if costs else None
-    comparison["costs"] = {
-        "cheapest": cheapest_api,
-        "costs_usd": costs
-    }
-    
-    # Reliability (error rate)
-    errors = {}
-    for api, result in api_results.items():
-        errors[api] = result.get("error") is not None
-    
-    comparison["reliability"] = {
-        "errors": errors,
-        "most_reliable": min(errors, key=errors.get) if errors else None
-    }
-    
-    # Simple recommendation logic
-    successful_apis = [api for api, result in api_results.items() if not result.get("error")]
-    
-    if successful_apis:
-        if len(successful_apis) == 1:
-            comparison["recommendation"] = f"Seule API fonctionnelle: {successful_apis[0]}"
-        else:
-            # Recommend based on cost for high-volume usage
-            working_costs = {api: costs[api] for api in successful_apis}
-            best_cost_api = min(working_costs, key=working_costs.get)
-            comparison["recommendation"] = f"Pour 520 rapports/an: {best_cost_api} (moins cher parmi les APIs fonctionnelles)"
-    else:
-        comparison["recommendation"] = "Aucune API n'a fonctionné - vérifier les clés API"
-    
-    return comparison
 
 
 if __name__ == "__main__":
