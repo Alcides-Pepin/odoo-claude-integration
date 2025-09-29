@@ -2368,6 +2368,113 @@ def create_activity_report_task(report_data, project_id, task_column_id):
         raise Exception(f"Error creating activity report task: {str(e)}")
 
 
+def generate_claude_summary(activities_data, tasks_data, projects_data, user_name, start_date, end_date):
+    """
+    Generate Claude AI summary for activity report
+
+    Args:
+        activities_data: Dict with activities data and details
+        tasks_data: Dict with tasks data and details
+        projects_data: Dict with projects data and details
+        user_name: Name of the user for personalized summary
+        start_date: Start date string
+        end_date: End date string
+
+    Returns:
+        String with Claude-generated summary or error message
+    """
+    try:
+        if not ANTHROPIC_API_KEY:
+            return "Résumé IA non disponible (clé API manquante)"
+
+        # Build enriched data summary
+        test_data_summary = f"""
+Données d'activité de la semaine du {start_date} au {end_date}:
+
+ACTIVITÉS RÉALISÉES ({activities_data.get('activites_realisees', 0)}):"""
+
+        # Add completed activities details with enriched data
+        activites_details = activities_data.get('activites_realisees_details', [])
+        if activites_details:
+            for activity in activites_details:
+                activity_type = activity.get('type', 'N/A')
+                note = activity.get('note', '')
+                test_data_summary += f"\n- {activity.get('name', 'Activité sans nom')} (le {activity.get('date', 'N/A')})"
+                if activity_type != 'N/A':
+                    test_data_summary += f" [Type: {activity_type}]"
+                if note:
+                    test_data_summary += f" - {note}"
+        else:
+            test_data_summary += "\n- Aucune activité réalisée"
+
+        test_data_summary += f"""
+
+TÂCHES RÉALISÉES ({tasks_data.get('taches_realisees', 0)}):"""
+
+        # Add completed tasks details with enriched data
+        taches_details = tasks_data.get('taches_realisees_details', [])
+        if taches_details:
+            for task in taches_details:
+                project_name = task.get('project', 'Projet non spécifié')
+                client_name = task.get('client', 'N/A')
+                description = task.get('description', '')
+                test_data_summary += f"\n- {task.get('name', 'Tâche sans nom')}"
+                if project_name != 'Projet non spécifié':
+                    test_data_summary += f" (Projet: {project_name})"
+                if client_name != 'N/A':
+                    test_data_summary += f" [Client: {client_name}]"
+                if description:
+                    test_data_summary += f" - {description}"
+        else:
+            test_data_summary += "\n- Aucune tâche réalisée"
+
+        test_data_summary += f"""
+
+PROJETS RÉALISÉS ({projects_data.get('projets_realises', 0)}):"""
+
+        # Add completed projects details with enriched data
+        projets_details = projects_data.get('projets_realises_details', [])
+        if projets_details:
+            for project in projets_details:
+                client_name = project.get('client', 'N/A')
+                description = project.get('description', '')
+                test_data_summary += f"\n- {project.get('name', 'Projet sans nom')} (finalisé le {project.get('date', 'N/A')})"
+                if client_name != 'N/A':
+                    test_data_summary += f" [Client: {client_name}]"
+                if description:
+                    test_data_summary += f" - {description}"
+        else:
+            test_data_summary += "\n- Aucun projet réalisé"
+
+        test_data_summary += f"""
+
+STATISTIQUES GÉNÉRALES:
+- Activités en retard: {activities_data.get('activites_retard', 0)}
+- Tâches en retard: {tasks_data.get('taches_retard', 0)}
+- Projets en retard: {projects_data.get('projets_retard', 0)}
+        """
+
+        # Create narrative-focused prompt with user name
+        prompt = f"""Écris un résumé en 2-3 paragraphes des activités de {user_name} cette semaine. Raconte ce qui s'est passé comme une histoire : sur quels projets {user_name} a travaillé, pourquoi, et quel impact business. Évite les listes à puces, écris en prose naturelle en parlant de {user_name} à la troisième personne.
+
+Données :{test_data_summary}"""
+
+        # Call Claude API
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=500,
+            temperature=0.7,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        return response.content[0].text
+
+    except Exception as e:
+        return f"Erreur lors de la génération du résumé IA : {str(e)}"
+
+
 if __name__ == "__main__":
     # Run the server with SSE transport
     mcp.run(transport="sse")
