@@ -2464,12 +2464,16 @@ Données :{test_data_summary}"""
 
         response = client.messages.create(
             model="claude-3-haiku-20240307",
-            max_tokens=500,
+            max_tokens=1000,
             temperature=0.7,
             messages=[{"role": "user", "content": prompt}]
         )
 
-        return response.content[0].text
+        # Replace line breaks with HTML <br> tags for proper display
+        summary_text = response.content[0].text
+        summary_html = summary_text.replace('\n', '<br>')
+
+        return summary_html
 
     except Exception as e:
         return f"Erreur lors de la génération du résumé IA : {str(e)}"
