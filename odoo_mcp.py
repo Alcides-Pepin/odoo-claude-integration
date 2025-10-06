@@ -1775,12 +1775,17 @@ def generate_report_html_table(report_data):
         for key, label in top_labels.items():
             value = top_clients_data.get(key)
 
-            # Affichage du nom du client
+            # Affichage du nom du client avec lien hypertexte
             if key == "tip_top" and isinstance(value, list):
                 display_value = ", ".join(value) if value else "Aucun"
             elif isinstance(value, dict):
-                # Nouveau format: dict avec 'id' et 'name'
-                display_value = value.get('name', 'Aucun') if value else "Aucun"
+                # Nouveau format: dict avec 'id' et 'name' - créer un lien
+                if value and value.get('id'):
+                    partner_id = value['id']
+                    partner_name = value.get('name', 'Sans nom')
+                    display_value = f"<a href='{ODOO_URL}/web#id={partner_id}&model=res.partner&view_type=form' style='color: #28a745; text-decoration: none;'>{partner_name}</a>"
+                else:
+                    display_value = "Aucun"
             else:
                 # Ancien format (string) ou None
                 display_value = value if value else "Aucun"
