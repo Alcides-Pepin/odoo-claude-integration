@@ -1907,22 +1907,32 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
         # Trier tous les événements par datetime
         all_events.sort(key=lambda x: x['datetime'])
 
-        # Grouper par jour
+        # Grouper par jour avec DEUX listes séparées
+        # Raison: Les activités n'ont pas d'heure (champ date_done est de type date, pas datetime)
+        # donc on les sépare visuellement des autres événements qui ont des timestamps précis
         daily_timeline = {}
         current_date = datetime.datetime.fromisoformat(start_date)
         end_date_obj = datetime.datetime.fromisoformat(end_date)
 
-        # Générer tous les jours de la période
+        # Générer tous les jours de la période avec structure à deux listes
         while current_date <= end_date_obj:
             date_str = current_date.strftime('%Y-%m-%d')
-            daily_timeline[date_str] = []
+            daily_timeline[date_str] = {
+                'activites': [],  # Activités sans timestamp (date_done = date only)
+                'autres_evenements': []  # Autres événements avec timestamp précis
+            }
             current_date += datetime.timedelta(days=1)
 
-        # Remplir avec les événements
+        # Répartir les événements dans les bonnes listes
         for event in all_events:
             event_date = event['datetime'][:10]  # Extract YYYY-MM-DD
             if event_date in daily_timeline:
-                daily_timeline[event_date].append(event)
+                if event['type'] == 'Activité':
+                    # Les activités vont dans leur propre section (pas d'heure affichée)
+                    daily_timeline[event_date]['activites'].append(event)
+                else:
+                    # Tout le reste a un timestamp précis
+                    daily_timeline[event_date]['autres_evenements'].append(event)
 
         return daily_timeline
 
@@ -2375,7 +2385,9 @@ def generate_daily_timeline_html(daily_timeline):
         sorted_dates = sorted(daily_timeline.keys())
 
         for date_str in sorted_dates:
-            events = daily_timeline[date_str]
+            day_data = daily_timeline[date_str]
+            activites = day_data['activites']
+            autres_evenements = day_data['autres_evenements']
 
             # Parser la date pour affichage
             date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d')
@@ -2389,34 +2401,60 @@ def generate_daily_timeline_html(daily_timeline):
                 </h3>
             """
 
-            if not events:
+            # Vérifier si le jour est complètement vide
+            if not activites and not autres_evenements:
                 html += """
                 <p style="margin-left: 20px; font-style: italic; color: #6c757d;">Aucune activité</p>
                 """
             else:
-                html += '<ul style="list-style-type: none; padding-left: 20px; margin: 0;">'
-
-                for event in events:
-                    # Extraire l'heure (HH:MM)
-                    try:
-                        event_datetime = datetime.datetime.fromisoformat(event['datetime'].replace('Z', '+00:00'))
-                        time_str = event_datetime.strftime('%H:%M')
-                    except:
-                        time_str = '00:00'
-
-                    event_type = event['type']
-                    event_name = event['name']
-                    event_url = event['url']
-
-                    html += f"""
-                    <li style="margin-bottom: 8px; padding: 5px 0;">
-                        <span style="font-weight: bold; color: #495057;">{time_str}</span> -
-                        <span style="color: #007bff;">{event_type}:</span>
-                        <a href="{event_url}" style="color: #28a745; text-decoration: none;">{event_name}</a>
-                    </li>
+                # Section 1: Activités (sans heure car date_done = date only)
+                if activites:
+                    html += """
+                    <h4 style="margin-left: 20px; margin-top: 15px; color: #495057; font-size: 1em;">Activités</h4>
+                    <ul style="list-style-type: none; padding-left: 40px; margin: 5px 0;">
                     """
 
-                html += '</ul>'
+                    for event in activites:
+                        event_name = event['name']
+                        event_url = event['url']
+
+                        html += f"""
+                        <li style="margin-bottom: 8px; padding: 5px 0;">
+                            <span style="color: #007bff;">Activité:</span>
+                            <a href="{event_url}" style="color: #28a745; text-decoration: none;">{event_name}</a>
+                        </li>
+                        """
+
+                    html += '</ul>'
+
+                # Section 2: Autres événements (avec timestamp HH:MM)
+                if autres_evenements:
+                    html += """
+                    <h4 style="margin-left: 20px; margin-top: 15px; color: #495057; font-size: 1em;">Autres événements</h4>
+                    <ul style="list-style-type: none; padding-left: 40px; margin: 5px 0;">
+                    """
+
+                    for event in autres_evenements:
+                        # Extraire l'heure (HH:MM)
+                        try:
+                            event_datetime = datetime.datetime.fromisoformat(event['datetime'].replace('Z', '+00:00'))
+                            time_str = event_datetime.strftime('%H:%M')
+                        except:
+                            time_str = '00:00'
+
+                        event_type = event['type']
+                        event_name = event['name']
+                        event_url = event['url']
+
+                        html += f"""
+                        <li style="margin-bottom: 8px; padding: 5px 0;">
+                            <span style="font-weight: bold; color: #495057;">{time_str}</span> -
+                            <span style="color: #007bff;">{event_type}:</span>
+                            <a href="{event_url}" style="color: #28a745; text-decoration: none;">{event_name}</a>
+                        </li>
+                        """
+
+                    html += '</ul>'
 
             html += '</div>'
 
