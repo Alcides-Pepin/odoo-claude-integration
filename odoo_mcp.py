@@ -541,6 +541,21 @@ def odoo_business_report(
         combined_user_name = ", ".join(user_names)
         
         # Collect all report data (AGRÉGÉ pour tous les utilisateurs)
+        top_clients_data = collect_top_clients_data(user_ids)
+
+        # Collecter les activités des Top 5 clients
+        top5_activities = collect_top5_client_activities(start_date, end_date, top_clients_data)
+
+        # Générer les résumés AI pour chaque Top 5
+        top5_summaries = {}
+        for top_key in ['top_1', 'top_2', 'top_3', 'top_4', 'top_5']:
+            client_activities = top5_activities.get(top_key)
+            if client_activities:
+                summary = generate_top5_ai_summary(client_activities, start_date, end_date)
+                top5_summaries[top_key] = summary
+            else:
+                top5_summaries[top_key] = "Aucun client"
+
         report_data = {
             "user_info": {
                 "user_ids": user_ids,
@@ -549,9 +564,10 @@ def odoo_business_report(
                 "start_date": start_date,
                 "end_date": end_date
             },
-            "revenue_data": collect_revenue_data(start_date, end_date, user_ids),  # CHANGÉ: user_ids
-            "metrics_data": collect_metrics_data(start_date, end_date, user_ids),  # CHANGÉ: user_ids
-            "top_clients_data": collect_top_clients_data(user_ids)  # CHANGÉ: user_ids
+            "revenue_data": collect_revenue_data(start_date, end_date, user_ids),
+            "metrics_data": collect_metrics_data(start_date, end_date, user_ids),
+            "top_clients_data": top_clients_data,
+            "top5_summaries": top5_summaries  # NOUVEAU: résumés AI des Top 5
         }
 
         # Create task with formatted report
@@ -1310,22 +1326,50 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
         raise Exception(f"Error collecting metrics data: {str(e)}")
 
 
+def strip_html_tags(html_text):
+    """
+    Remove HTML tags from text to get plain text.
+
+    Args:
+        html_text: HTML string to clean
+
+    Returns:
+        Plain text without HTML tags
+    """
+    if not html_text:
+        return ""
+
+    import re
+    # Remove HTML tags
+    clean = re.sub('<.*?>', '', html_text)
+    # Remove extra whitespace
+    clean = re.sub(r'\s+', ' ', clean)
+    return clean.strip()
+
+
 def get_top_contact(user_ids: List[int], category_id: int):
-    """MODIFIÉ pour supporter plusieurs utilisateurs - retourne le premier trouvé"""
+    """
+    MODIFIÉ pour supporter plusieurs utilisateurs et retourner ID + nom
+    Retourne un dict avec 'id' et 'name' ou None si pas trouvé
+    """
     try:
         result = odoo_search(
             model='res.partner',
             domain=[
-                ['user_id', 'in', user_ids],  # CHANGÉ
+                ['user_id', 'in', user_ids],
                 ['category_id', 'in', [category_id]]
             ],
-            fields=['name'],
+            fields=['id', 'name'],
             limit=1
         )
 
         response = json.loads(result)
         if response.get('status') == 'success' and response.get('records'):
-            return response['records'][0]['name']
+            record = response['records'][0]
+            return {
+                'id': record['id'],
+                'name': record['name']
+            }
         return None
 
     except Exception as e:
@@ -1352,6 +1396,194 @@ def get_tip_top_contacts(user_ids: List[int]):
 
     except Exception as e:
         raise Exception(f"Error getting tip top contacts: {str(e)}")
+
+
+def collect_top5_client_activities(start_date: str, end_date: str, top_clients_data: Dict):
+    """
+    Collect chatter messages and activities for each Top 5 client.
+
+    Args:
+        start_date: Start date in ISO format
+        end_date: End date in ISO format
+        top_clients_data: Dict with top client data (from collect_top_clients_data)
+
+    Returns:
+        Dict with client activities data for each top client
+    """
+    try:
+        top5_activities = {}
+
+        for top_key in ['top_1', 'top_2', 'top_3', 'top_4', 'top_5']:
+            client_data = top_clients_data.get(top_key)
+
+            if client_data and client_data.get('id'):
+                partner_id = client_data['id']
+                partner_name = client_data['name']
+
+                # Récupérer les messages du chatter (notes, comments, emails)
+                messages_result = odoo_search(
+                    model='mail.message',
+                    domain=[
+                        ['res_id', '=', partner_id],
+                        ['model', '=', 'res.partner'],
+                        ['date', '>=', start_date + ' 00:00:00'],
+                        ['date', '<=', end_date + ' 23:59:59'],
+                        ['message_type', 'in', ['comment', 'email']]  # Notes sont stockées comme comments
+                    ],
+                    fields=['date', 'body', 'author_id', 'message_type', 'subject'],
+                    limit=100
+                )
+
+                messages = []
+                messages_response = json.loads(messages_result)
+                if messages_response.get('status') == 'success':
+                    messages = messages_response.get('records', [])
+
+                # Récupérer les activités terminées
+                activities_result = odoo_search(
+                    model='mail.activity',
+                    domain=[
+                        ['res_id', '=', partner_id],
+                        ['res_model', '=', 'res.partner'],
+                        ['date_done', '>=', start_date],
+                        ['date_done', '<=', end_date],
+                        ['state', '=', 'done']
+                    ],
+                    fields=['summary', 'date_done', 'note'],
+                    limit=50
+                )
+
+                activities = []
+                activities_response = json.loads(activities_result)
+                if activities_response.get('status') == 'success':
+                    activities = activities_response.get('records', [])
+
+                top5_activities[top_key] = {
+                    'id': partner_id,
+                    'name': partner_name,
+                    'messages': messages,
+                    'activities': activities
+                }
+            else:
+                # Pas de client pour ce top
+                top5_activities[top_key] = None
+
+        return top5_activities
+
+    except Exception as e:
+        raise Exception(f"Error collecting top5 client activities: {str(e)}")
+
+
+def generate_top5_ai_summary(client_data: Dict, start_date: str, end_date: str) -> str:
+    """
+    Generate AI narrative summary of actions taken for a Top 5 client.
+
+    Args:
+        client_data: Dict with client info (id, name, messages, activities)
+        start_date: Start date in ISO format
+        end_date: End date in ISO format
+
+    Returns:
+        Narrative summary text generated by Claude AI
+    """
+    try:
+        if not client_data:
+            return "Aucun client"
+
+        client_name = client_data['name']
+        messages = client_data.get('messages', [])
+        activities = client_data.get('activities', [])
+
+        # Construire le contexte à partir des messages et activités
+        context = f"Client: {client_name}\n"
+        context += f"Période: du {start_date} au {end_date}\n\n"
+
+        # Ajouter les messages du chatter
+        if messages:
+            context += "Messages et notes du chatter:\n"
+            for msg in messages:
+                date = msg.get('date', '')[:10]  # YYYY-MM-DD
+                body_text = strip_html_tags(msg.get('body', ''))
+                message_type = msg.get('message_type', 'note')
+                subject = msg.get('subject', '')
+
+                if body_text:
+                    context += f"- {date} ({message_type}): {body_text[:200]}\n"
+                    if subject:
+                        context += f"  Sujet: {subject}\n"
+
+        # Ajouter les activités réalisées
+        if activities:
+            context += "\nActivités réalisées:\n"
+            for act in activities:
+                date_done = act.get('date_done', '')
+                summary = act.get('summary', 'Activité sans nom')
+                note = act.get('note', '')
+
+                context += f"- {date_done}: {summary}\n"
+                if note:
+                    note_text = strip_html_tags(note)
+                    if note_text:
+                        context += f"  Note: {note_text[:200]}\n"
+
+        # Si aucune donnée
+        if not messages and not activities:
+            return "Aucune action enregistrée pour ce client durant la période."
+
+        # Construire le prompt
+        prompt = f"""Tu es un assistant commercial qui rédige des rapports d'activité professionnels.
+
+Contexte:
+- Client: {client_name}
+- Période: du {start_date} au {end_date}
+
+Voici les messages et activités enregistrés pour ce client durant cette période:
+
+{context}
+
+Consigne:
+Rédige un récit narratif FLUIDE et PROFESSIONNEL décrivant les actions commerciales menées avec ce client durant la période.
+
+IMPORTANT:
+- Rédige en PARAGRAPHES NARRATIFS, PAS de listes à puces
+- Évite les formulations génériques ou creuses
+- Sois CONCRET et FACTUEL en te basant sur les données fournies
+- Si peu d'actions ont été menées, dis-le simplement sans enjoliver
+- Ton style doit être celui d'un compte-rendu commercial professionnel
+- Ne commence PAS par "Durant cette période" ou formules similaires
+- Va DIRECTEMENT au contenu factuel
+
+Exemple de ce que JE VEUX:
+"Le commercial a réalisé trois rendez-vous de dégustation avec ce client. Suite à la visite du 15 janvier, une commande de 150 bouteilles a été passée. Un suivi téléphonique le 20 janvier a permis de confirmer la livraison et d'identifier un besoin complémentaire en vins blancs pour mars."
+
+Exemple de ce que JE NE VEUX PAS:
+"Durant cette période, plusieurs actions ont été menées:
+- Réalisation de rendez-vous
+- Passage de commande
+- Suivi client"
+"""
+
+        # Appeler Claude API
+        if not ANTHROPIC_API_KEY:
+            return "[Erreur: ANTHROPIC_API_KEY non configurée]"
+
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            temperature=0.7,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+
+        summary = response.content[0].text
+        return summary
+
+    except Exception as e:
+        return f"[Erreur lors de la génération du résumé: {str(e)}]"
 
 
 def collect_top_clients_data(user_ids: List[int]):
@@ -1528,7 +1760,9 @@ def generate_report_html_table(report_data):
                 </tr>
         """
 
-        # Section Top clients (AGRÉGÉ - reste identique)
+        # Section Top clients avec résumés AI
+        top5_summaries = report_data.get('top5_summaries', {})
+
         top_labels = {
             "top_1": "Top 1",
             "top_2": "Top 2",
@@ -1541,9 +1775,14 @@ def generate_report_html_table(report_data):
         for key, label in top_labels.items():
             value = top_clients_data.get(key)
 
+            # Affichage du nom du client
             if key == "tip_top" and isinstance(value, list):
                 display_value = ", ".join(value) if value else "Aucun"
+            elif isinstance(value, dict):
+                # Nouveau format: dict avec 'id' et 'name'
+                display_value = value.get('name', 'Aucun') if value else "Aucun"
             else:
+                # Ancien format (string) ou None
                 display_value = value if value else "Aucun"
 
             html += f"""
@@ -1552,6 +1791,19 @@ def generate_report_html_table(report_data):
                         <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{display_value}</td>
                     </tr>
             """
+
+            # Afficher le résumé AI juste après pour les Top 1-5 (pas Tip Top)
+            if key in ['top_1', 'top_2', 'top_3', 'top_4', 'top_5']:
+                summary = top5_summaries.get(key, '')
+                if summary:
+                    html += f"""
+                    <tr>
+                        <td colspan="2" style="border: 1px solid #dee2e6; padding: 10px; background-color: #f8f9fa; font-style: italic;">
+                            <strong>Actions menées:</strong><br>
+                            {summary}
+                        </td>
+                    </tr>
+                    """
 
         html += """
                 </tbody>
