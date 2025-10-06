@@ -6,6 +6,7 @@ import socket
 import time
 from typing import Any, List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
+import anthropic
 
 # Get port from environment variable
 # (Railway/Render sets this, defaults to 8001 for local dev)
@@ -16,6 +17,8 @@ ODOO_URL = os.getenv('ODOO_URL')
 ODOO_DB = os.getenv('ODOO_DB')
 ODOO_USER = os.getenv('ODOO_USER')
 ODOO_PASSWORD = os.getenv('ODOO_PASSWORD')
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+
 TIMEOUT = 30
 
 # Security blacklist - operations that should never be allowed
@@ -2126,7 +2129,7 @@ def get_completed_activities_details(start_date: str, end_date: str, user_id: in
                 ['date_done', '<=', end_date], 
                 ['user_id', '=', user_id]
             ],
-            fields=['id', 'summary', 'date_done', 'res_model', 'res_id'],
+            fields=['id', 'summary', 'date_done', 'res_model', 'res_id', 'note', 'activity_type_id'],
             limit=50
         )
         
@@ -2135,10 +2138,21 @@ def get_completed_activities_details(start_date: str, end_date: str, user_id: in
             activities = []
             for activity in response.get('records', []):
                 activity_url = f"{ODOO_URL}/web#id={activity['id']}&model=mail.activity&view_type=form"
+                # Extract additional fields
+                note = activity.get('note', '') or ''
+                # Clean HTML from note
+                import re
+                note_clean = re.sub(r'<[^>]*>', '', note).strip() if note else ''
+                activity_type = activity.get('activity_type_id', [False, 'N/A'])[1] if activity.get('activity_type_id') else 'N/A'
+                related_model = activity.get('res_model', 'N/A')
+
                 activities.append({
                     'name': activity.get('summary', 'Activité sans nom'),
                     'url': activity_url,
-                    'date': activity.get('date_done', '')
+                    'date': activity.get('date_done', ''),
+                    'note': note_clean[:200] + '...' if len(note_clean) > 200 else note_clean,
+                    'type': activity_type,
+                    'related_model': related_model
                 })
             return activities
         return []
@@ -2157,7 +2171,7 @@ def get_completed_tasks_details(start_date: str, end_date: str, user_id: int):
                 ['date_last_stage_update', '>=', start_date],
                 ['date_last_stage_update', '<=', end_date]
             ],
-            fields=['id', 'name', 'date_last_stage_update', 'project_id'],
+            fields=['id', 'name', 'date_last_stage_update', 'project_id', 'description', 'tag_ids', 'partner_id'],
             limit=50
         )
         
@@ -2166,11 +2180,22 @@ def get_completed_tasks_details(start_date: str, end_date: str, user_id: int):
             tasks = []
             for task in response.get('records', []):
                 task_url = f"{ODOO_URL}/web#id={task['id']}&model=project.task&view_type=form"
+                # Extract additional fields
+                project_name = task.get('project_id', [False, 'N/A'])[1] if task.get('project_id') else 'N/A'
+                client_name = task.get('partner_id', [False, 'N/A'])[1] if task.get('partner_id') else 'N/A'
+                description = task.get('description', '') or ''
+                # Clean HTML from description
+                import re
+                description_clean = re.sub(r'<[^>]*>', '', description).strip() if description else ''
+
                 tasks.append({
                     'name': task.get('name', 'Tâche sans nom'),
                     'url': task_url,
                     'date': task.get('date_last_stage_update', ''),
-                    'project': task.get('project_id', [False, 'N/A'])[1] if task.get('project_id') else 'N/A'
+                    'project': project_name,
+                    'client': client_name,
+                    'description': description_clean[:200] + '...' if len(description_clean) > 200 else description_clean,
+                    'tag_ids': task.get('tag_ids', [])
                 })
             return tasks
         return []
@@ -2216,7 +2241,7 @@ def get_completed_projects_details(start_date: str, end_date: str, user_id: int)
                 ['user_id', '=', user_id],
                 ['favorite_user_ids', 'in', [user_id]]
             ],
-            fields=['id', 'name'],
+            fields=['id', 'name', 'description', 'partner_id', 'tag_ids'],
             limit=50
         )
         
@@ -2225,10 +2250,20 @@ def get_completed_projects_details(start_date: str, end_date: str, user_id: int)
             projects = []
             for project in projects_response.get('records', []):
                 project_url = f"{ODOO_URL}/web#id={project['id']}&model=project.project&view_type=kanban"
+                # Extract additional fields
+                description = project.get('description', '') or ''
+                # Clean HTML from description
+                import re
+                description_clean = re.sub(r'<[^>]*>', '', description).strip() if description else ''
+                client_name = project.get('partner_id', [False, 'N/A'])[1] if project.get('partner_id') else 'N/A'
+
                 projects.append({
                     'name': project.get('name', 'Projet sans nom'),
                     'url': project_url,
-                    'date': project_updates.get(project['id'], '')
+                    'date': project_updates.get(project['id'], ''),
+                    'description': description_clean[:200] + '...' if len(description_clean) > 200 else description_clean,
+                    'client': client_name,
+                    'tag_ids': project.get('tag_ids', [])
                 })
             return projects
         return []
@@ -2617,6 +2652,26 @@ def generate_activity_report_html_table(report_data):
                     </tr>
             """
         
+        # Add Claude AI summary row
+        html += '<tr style="background-color: #e9ecef; font-weight: bold;"><td colspan="2" style="border: 1px solid #dee2e6; padding: 10px;">RÉSUMÉ IA</td></tr>'
+
+        # Generate Claude summary
+        user_name = user_info.get('user_name', 'cet utilisateur')
+        start_date = user_info.get('start_date', '')
+        end_date = user_info.get('end_date', '')
+
+        claude_summary = generate_claude_summary(
+            activities_data, tasks_data, projects_data,
+            user_name, start_date, end_date
+        )
+
+        html += f"""
+                <tr>
+                    <td style="border: 1px solid #dee2e6; padding: 10px;"><strong>Résumé des activités</strong></td>
+                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left;">{claude_summary}</td>
+                </tr>
+        """
+
         html += """
                 </tbody>
             </table>
@@ -2670,6 +2725,118 @@ def create_activity_report_task(report_data, project_id, task_column_id):
             
     except Exception as e:
         raise Exception(f"Error creating activity report task: {str(e)}")
+
+
+def generate_claude_summary(activities_data, tasks_data, projects_data, user_name, start_date, end_date):
+    """
+    Generate Claude AI summary for activity report
+
+    Args:
+        activities_data: Dict with activities data and details
+        tasks_data: Dict with tasks data and details
+        projects_data: Dict with projects data and details
+        user_name: Name of the user for personalized summary
+        start_date: Start date string
+        end_date: End date string
+
+    Returns:
+        String with Claude-generated summary or error message
+    """
+    try:
+        if not ANTHROPIC_API_KEY:
+            return "Résumé IA non disponible (clé API manquante)"
+
+        # Build enriched data summary
+        test_data_summary = f"""
+Données d'activité de la semaine du {start_date} au {end_date}:
+
+ACTIVITÉS RÉALISÉES ({activities_data.get('activites_realisees', 0)}):"""
+
+        # Add completed activities details with enriched data
+        activites_details = activities_data.get('activites_realisees_details', [])
+        if activites_details:
+            for activity in activites_details:
+                activity_type = activity.get('type', 'N/A')
+                note = activity.get('note', '')
+                test_data_summary += f"\n- {activity.get('name', 'Activité sans nom')} (le {activity.get('date', 'N/A')})"
+                if activity_type != 'N/A':
+                    test_data_summary += f" [Type: {activity_type}]"
+                if note:
+                    test_data_summary += f" - {note}"
+        else:
+            test_data_summary += "\n- Aucune activité réalisée"
+
+        test_data_summary += f"""
+
+TÂCHES RÉALISÉES ({tasks_data.get('taches_realisees', 0)}):"""
+
+        # Add completed tasks details with enriched data
+        taches_details = tasks_data.get('taches_realisees_details', [])
+        if taches_details:
+            for task in taches_details:
+                project_name = task.get('project', 'Projet non spécifié')
+                client_name = task.get('client', 'N/A')
+                description = task.get('description', '')
+                test_data_summary += f"\n- {task.get('name', 'Tâche sans nom')}"
+                if project_name != 'Projet non spécifié':
+                    test_data_summary += f" (Projet: {project_name})"
+                if client_name != 'N/A':
+                    test_data_summary += f" [Client: {client_name}]"
+                if description:
+                    test_data_summary += f" - {description}"
+        else:
+            test_data_summary += "\n- Aucune tâche réalisée"
+
+        test_data_summary += f"""
+
+PROJETS RÉALISÉS ({projects_data.get('projets_realises', 0)}):"""
+
+        # Add completed projects details with enriched data
+        projets_details = projects_data.get('projets_realises_details', [])
+        if projets_details:
+            for project in projets_details:
+                client_name = project.get('client', 'N/A')
+                description = project.get('description', '')
+                test_data_summary += f"\n- {project.get('name', 'Projet sans nom')} (finalisé le {project.get('date', 'N/A')})"
+                if client_name != 'N/A':
+                    test_data_summary += f" [Client: {client_name}]"
+                if description:
+                    test_data_summary += f" - {description}"
+        else:
+            test_data_summary += "\n- Aucun projet réalisé"
+
+        test_data_summary += f"""
+
+STATISTIQUES GÉNÉRALES:
+- Activités en retard: {activities_data.get('activites_retard', 0)}
+- Tâches en retard: {tasks_data.get('taches_retard', 0)}
+- Projets en retard: {projects_data.get('projets_retard', 0)}
+        """
+
+        # Create narrative-focused prompt with user name
+        prompt = f"""Écris un résumé en 2-3 paragraphes des activités de {user_name} cette semaine. Raconte ce qui s'est passé comme une histoire : sur quels projets {user_name} a travaillé, pourquoi, et quel impact business. Évite les listes à puces, écris en prose naturelle en parlant de {user_name} à la troisième personne.
+
+Données :{test_data_summary}"""
+
+        # Call Claude API
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=1000,
+            temperature=0.7,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        # Replace line breaks with HTML <br> tags for proper display
+        summary_text = response.content[0].text
+        summary_html = summary_text.replace('\n', '<br>')
+
+        return summary_html
+
+    except Exception as e:
+        return f"Erreur lors de la génération du résumé IA : {str(e)}"
+
 
 if __name__ == "__main__":
     # Run the server with SSE transport
