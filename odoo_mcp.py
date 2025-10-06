@@ -1706,6 +1706,243 @@ def odoo_activity_report(
         })
 
 
+def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
+    """
+    Collect all events (activities, tasks, projects, contacts, opportunities, orders, invoices)
+    and organize them chronologically day by day with timestamps.
+
+    Returns:
+        Dict with dates as keys and list of events sorted by time
+    """
+    try:
+        all_events = []
+
+        # 1. Activités terminées (date_done)
+        activities_result = odoo_search(
+            model='mail.activity',
+            domain=[
+                ['active', '=', False],
+                ['state', '=', 'done'],
+                ['date_done', '>=', start_date],
+                ['date_done', '<=', end_date],
+                ['user_id', '=', user_id]
+            ],
+            fields=['id', 'summary', 'date_done'],
+            limit=100
+        )
+        activities_response = json.loads(activities_result)
+        if activities_response.get('status') == 'success':
+            for activity in activities_response.get('records', []):
+                if activity.get('date_done'):
+                    all_events.append({
+                        'datetime': activity['date_done'],
+                        'type': 'Activité',
+                        'name': activity.get('summary', 'Activité sans nom'),
+                        'id': activity['id'],
+                        'model': 'mail.activity',
+                        'url': f"{ODOO_URL}/web#id={activity['id']}&model=mail.activity&view_type=form"
+                    })
+
+        # 2. Tâches complétées (date_last_stage_update)
+        tasks_result = odoo_search(
+            model='project.task',
+            domain=[
+                ['user_ids', 'in', [user_id]],
+                ['state', '=', '1_done'],
+                ['date_last_stage_update', '>=', start_date],
+                ['date_last_stage_update', '<=', end_date]
+            ],
+            fields=['id', 'name', 'date_last_stage_update'],
+            limit=100
+        )
+        tasks_response = json.loads(tasks_result)
+        if tasks_response.get('status') == 'success':
+            for task in tasks_response.get('records', []):
+                if task.get('date_last_stage_update'):
+                    all_events.append({
+                        'datetime': task['date_last_stage_update'],
+                        'type': 'Tâche',
+                        'name': task.get('name', 'Tâche sans nom'),
+                        'id': task['id'],
+                        'model': 'project.task',
+                        'url': f"{ODOO_URL}/web#id={task['id']}&model=project.task&view_type=form"
+                    })
+
+        # 3. Projets terminés (via project.update)
+        updates_result = odoo_search(
+            model='project.update',
+            domain=[
+                ['status', '=', 'done'],
+                ['date', '>=', start_date],
+                ['date', '<=', end_date]
+            ],
+            fields=['project_id', 'date'],
+            limit=100
+        )
+        updates_response = json.loads(updates_result)
+        if updates_response.get('status') == 'success':
+            project_ids = [u['project_id'][0] for u in updates_response.get('records', []) if u.get('project_id')]
+            if project_ids:
+                projects_result = odoo_search(
+                    model='project.project',
+                    domain=[
+                        ['id', 'in', project_ids],
+                        '|',
+                        ['user_id', '=', user_id],
+                        ['favorite_user_ids', 'in', [user_id]]
+                    ],
+                    fields=['id', 'name'],
+                    limit=100
+                )
+                projects_response = json.loads(projects_result)
+                if projects_response.get('status') == 'success':
+                    # Map project_id to date
+                    project_date_map = {u['project_id'][0]: u['date'] for u in updates_response.get('records', []) if u.get('project_id')}
+                    for project in projects_response.get('records', []):
+                        project_date = project_date_map.get(project['id'])
+                        if project_date:
+                            all_events.append({
+                                'datetime': project_date,
+                                'type': 'Projet',
+                                'name': project.get('name', 'Projet sans nom'),
+                                'id': project['id'],
+                                'model': 'project.project',
+                                'url': f"{ODOO_URL}/web#id={project['id']}&model=project.project&view_type=kanban"
+                            })
+
+        # 4. Contacts créés (create_date)
+        contacts_result = odoo_search(
+            model='res.partner',
+            domain=[
+                ['user_id', '=', user_id],
+                ['create_date', '>=', start_date],
+                ['create_date', '<=', end_date]
+            ],
+            fields=['id', 'name', 'create_date'],
+            limit=100
+        )
+        contacts_response = json.loads(contacts_result)
+        if contacts_response.get('status') == 'success':
+            for contact in contacts_response.get('records', []):
+                if contact.get('create_date'):
+                    all_events.append({
+                        'datetime': contact['create_date'],
+                        'type': 'Contact',
+                        'name': contact.get('name', 'Contact sans nom'),
+                        'id': contact['id'],
+                        'model': 'res.partner',
+                        'url': f"{ODOO_URL}/web#id={contact['id']}&model=res.partner&view_type=form"
+                    })
+
+        # 5. Opportunités créées (create_date)
+        opportunities_result = odoo_search(
+            model='crm.lead',
+            domain=[
+                ['user_id', '=', user_id],
+                ['create_date', '>=', start_date],
+                ['create_date', '<=', end_date]
+            ],
+            fields=['id', 'name', 'create_date'],
+            limit=100
+        )
+        opportunities_response = json.loads(opportunities_result)
+        if opportunities_response.get('status') == 'success':
+            for opp in opportunities_response.get('records', []):
+                if opp.get('create_date'):
+                    all_events.append({
+                        'datetime': opp['create_date'],
+                        'type': 'Opportunité',
+                        'name': opp.get('name', 'Opportunité sans nom'),
+                        'id': opp['id'],
+                        'model': 'crm.lead',
+                        'url': f"{ODOO_URL}/web#id={opp['id']}&model=crm.lead&view_type=form"
+                    })
+
+        # 6. Commandes créées (create_date)
+        orders_result = odoo_search(
+            model='sale.order',
+            domain=[
+                ['user_id', '=', user_id],
+                ['create_date', '>=', start_date],
+                ['create_date', '<=', end_date]
+            ],
+            fields=['id', 'name', 'create_date'],
+            limit=100
+        )
+        orders_response = json.loads(orders_result)
+        if orders_response.get('status') == 'success':
+            for order in orders_response.get('records', []):
+                if order.get('create_date'):
+                    all_events.append({
+                        'datetime': order['create_date'],
+                        'type': 'Commande',
+                        'name': order.get('name', 'Commande sans nom'),
+                        'id': order['id'],
+                        'model': 'sale.order',
+                        'url': f"{ODOO_URL}/web#id={order['id']}&model=sale.order&view_type=form"
+                    })
+
+        # 7. Factures créées (create_date)
+        invoices_result = odoo_search(
+            model='account.move',
+            domain=[
+                ['invoice_user_id', '=', user_id],
+                ['create_date', '>=', start_date],
+                ['create_date', '<=', end_date],
+                ['move_type', '=', 'out_invoice']
+            ],
+            fields=['id', 'name', 'create_date'],
+            limit=100
+        )
+        invoices_response = json.loads(invoices_result)
+        if invoices_response.get('status') == 'success':
+            for invoice in invoices_response.get('records', []):
+                if invoice.get('create_date'):
+                    all_events.append({
+                        'datetime': invoice['create_date'],
+                        'type': 'Facture',
+                        'name': invoice.get('name', 'Facture sans nom'),
+                        'id': invoice['id'],
+                        'model': 'account.move',
+                        'url': f"{ODOO_URL}/web#id={invoice['id']}&model=account.move&view_type=form"
+                    })
+
+        # Trier tous les événements par datetime
+        all_events.sort(key=lambda x: x['datetime'])
+
+        # Grouper par jour avec DEUX listes séparées
+        # Raison: Les activités n'ont pas d'heure (champ date_done est de type date, pas datetime)
+        # donc on les sépare visuellement des autres événements qui ont des timestamps précis
+        daily_timeline = {}
+        current_date = datetime.datetime.fromisoformat(start_date)
+        end_date_obj = datetime.datetime.fromisoformat(end_date)
+
+        # Générer tous les jours de la période avec structure à deux listes
+        while current_date <= end_date_obj:
+            date_str = current_date.strftime('%Y-%m-%d')
+            daily_timeline[date_str] = {
+                'activites': [],  # Activités sans timestamp (date_done = date only)
+                'autres_evenements': []  # Autres événements avec timestamp précis
+            }
+            current_date += datetime.timedelta(days=1)
+
+        # Répartir les événements dans les bonnes listes
+        for event in all_events:
+            event_date = event['datetime'][:10]  # Extract YYYY-MM-DD
+            if event_date in daily_timeline:
+                if event['type'] == 'Activité':
+                    # Les activités vont dans leur propre section (pas d'heure affichée)
+                    daily_timeline[event_date]['activites'].append(event)
+                else:
+                    # Tout le reste a un timestamp précis
+                    daily_timeline[event_date]['autres_evenements'].append(event)
+
+        return daily_timeline
+
+    except Exception as e:
+        raise Exception(f"Error collecting daily timeline data: {str(e)}")
+
+
 def collect_activities_data(
         start_date: str,
         end_date: str,
@@ -1751,12 +1988,16 @@ def collect_activities_data(
             user_id
             )
 
+        # Timeline chronologique jour par jour (nouveau)
+        daily_timeline = collect_daily_timeline_data(start_date, end_date, user_id)
+
         return {
             "activites_realisees": activites_realisees_count,
             "activites_retard": activites_retard,
             "activites_delais": activites_delais,
             "activites_cours_total": activites_cours_total,
-            "activites_realisees_details": activites_realisees_details
+            "activites_realisees_details": activites_realisees_details,
+            "daily_timeline": daily_timeline
         }
 
     except Exception as e:
@@ -2148,6 +2389,118 @@ def get_completed_projects_count(start_date: str, end_date: str, user_id: int):
         raise Exception(f"Error getting completed projects count: {str(e)}")
 
 
+def generate_daily_timeline_html(daily_timeline):
+    """
+    Generate HTML for day-by-day chronological timeline of all activities.
+
+    Args:
+        daily_timeline: Dict with dates as keys and list of events as values
+
+    Returns:
+        HTML string with chronological timeline
+    """
+    try:
+        # Convertir les jours français
+        french_days = {
+            0: 'Lundi',
+            1: 'Mardi',
+            2: 'Mercredi',
+            3: 'Jeudi',
+            4: 'Vendredi',
+            5: 'Samedi',
+            6: 'Dimanche'
+        }
+
+        html = """
+        <div style="margin-top: 40px;">
+            <h2 style="border-bottom: 2px solid #dee2e6; padding-bottom: 10px;">Détail chronologique des activités</h2>
+        """
+
+        # Trier les dates (du plus ancien au plus récent)
+        sorted_dates = sorted(daily_timeline.keys())
+
+        for date_str in sorted_dates:
+            day_data = daily_timeline[date_str]
+            activites = day_data['activites']
+            autres_evenements = day_data['autres_evenements']
+
+            # Parser la date pour affichage
+            date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+            day_name = french_days[date_obj.weekday()]
+            formatted_date = f"{day_name} {date_obj.strftime('%d/%m/%Y')}"
+
+            html += f"""
+            <div style="margin-top: 25px; margin-bottom: 25px;">
+                <h3 style="background-color: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;">
+                    {formatted_date}
+                </h3>
+            """
+
+            # Vérifier si le jour est complètement vide
+            if not activites and not autres_evenements:
+                html += """
+                <p style="margin-left: 20px; font-style: italic; color: #6c757d;">Aucune activité</p>
+                """
+            else:
+                # Section 1: Activités (sans heure car date_done = date only)
+                if activites:
+                    html += """
+                    <h4 style="margin-left: 20px; margin-top: 15px; color: #495057; font-size: 1em;">Activités</h4>
+                    <ul style="list-style-type: none; padding-left: 40px; margin: 5px 0;">
+                    """
+
+                    for event in activites:
+                        event_name = event['name']
+                        event_url = event['url']
+
+                        html += f"""
+                        <li style="margin-bottom: 8px; padding: 5px 0;">
+                            <span style="color: #007bff;">Activité:</span>
+                            <a href="{event_url}" style="color: #28a745; text-decoration: none;">{event_name}</a>
+                        </li>
+                        """
+
+                    html += '</ul>'
+
+                # Section 2: Autres événements (avec timestamp HH:MM)
+                if autres_evenements:
+                    html += """
+                    <h4 style="margin-left: 20px; margin-top: 15px; color: #495057; font-size: 1em;">Autres événements</h4>
+                    <ul style="list-style-type: none; padding-left: 40px; margin: 5px 0;">
+                    """
+
+                    for event in autres_evenements:
+                        # Extraire l'heure (HH:MM)
+                        try:
+                            event_datetime = datetime.datetime.fromisoformat(event['datetime'].replace('Z', '+00:00'))
+                            time_str = event_datetime.strftime('%H:%M')
+                        except:
+                            time_str = '00:00'
+
+                        event_type = event['type']
+                        event_name = event['name']
+                        event_url = event['url']
+
+                        html += f"""
+                        <li style="margin-bottom: 8px; padding: 5px 0;">
+                            <span style="font-weight: bold; color: #495057;">{time_str}</span> -
+                            <span style="color: #007bff;">{event_type}:</span>
+                            <a href="{event_url}" style="color: #28a745; text-decoration: none;">{event_name}</a>
+                        </li>
+                        """
+
+                    html += '</ul>'
+
+            html += '</div>'
+
+        html += '</div>'
+
+        return html
+
+    except Exception as e:
+        raise Exception(f"Error generating daily timeline HTML: {str(e)}")
+
+
 def generate_activity_report_html_table(report_data):
     """Generate HTML table for activity report with detailed lists"""
     try:
@@ -2325,8 +2678,14 @@ def generate_activity_report_html_table(report_data):
         </div>
         """
 
+        # Ajouter la timeline chronologique jour par jour
+        daily_timeline = activities_data.get('daily_timeline', {})
+        if daily_timeline:
+            timeline_html = generate_daily_timeline_html(daily_timeline)
+            html += timeline_html
+
         return html
-        
+
     except Exception as e:
         raise Exception(f"Error generating HTML table: {str(e)}")
 
