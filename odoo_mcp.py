@@ -2094,7 +2094,8 @@ def determine_action_type(msg: dict) -> str:
 
 def build_action_name(msg: dict, action_type: str, enriched_display_name: str = None) -> str:
     """
-    Build a descriptive name for the action based on mail.message content.
+    Build an ultra-explicit descriptive name for the action.
+    Format: {Action} sur {Type d'objet} "{Nom de l'objet}" : {Complément}
 
     Args:
         msg: mail.message record
@@ -2102,45 +2103,104 @@ def build_action_name(msg: dict, action_type: str, enriched_display_name: str = 
         enriched_display_name: Real display_name retrieved from batch enrichment (optional)
 
     Returns:
-        Descriptive action name
+        Ultra-explicit action description
     """
     # Utiliser le display_name enrichi en priorité, sinon fallback sur record_name
-    record_name = enriched_display_name or msg.get('record_name', '')
+    record_name = enriched_display_name or msg.get('record_name', '') or f"#{msg.get('res_id', '?')}"
 
-    # Récupérer le modèle pour contexte
+    # Récupérer le type d'objet en français
     model = msg.get('model', '')
-    model_display = get_model_display_name(model)
+    model_type = get_model_display_name(model)
 
-    # Construire le nom basé sur le type
+    # EMAIL
     if action_type == 'Email':
-        subject = msg.get('subject', 'Email sans objet')
-        if record_name:
-            return f"{subject} (sur {record_name})"
-        return subject
+        subject = msg.get('subject', 'Sans objet')
+        return f'Email "{subject}" concernant {model_type} "{record_name}"'
 
+    # COMMENTAIRE / NOTE INTERNE
     elif action_type == 'Commentaire':
-        # Extraire début du corps (sans HTML) ou utiliser preview si disponible
+        # Extraire un aperçu du contenu
         preview = msg.get('preview', '')
         if not preview:
             body = msg.get('body', '')
-            if body:
-                preview = strip_html_tags(body)[:50]
+            preview = extract_text_from_html(body, max_length=100)
 
         if preview:
-            if record_name:
-                return f"Commentaire sur {record_name}: {preview}..."
-            return f"Commentaire: {preview}..."
-        if record_name:
-            return f"Commentaire sur {record_name}"
-        return "Commentaire interne"
+            return f'Note interne sur {model_type} "{record_name}" : {preview}'
+        else:
+            return f'Note interne sur {model_type} "{record_name}"'
 
+    # TÂCHE CRÉÉE
+    elif action_type == 'Tâche créée':
+        return f'{model_type} créée : "{record_name}"'
+
+    # TÂCHE TERMINÉE
+    elif action_type == 'Tâche terminée':
+        return f'{model_type} terminée : "{record_name}"'
+
+    # CHANGEMENT D'ÉTAPE
+    elif action_type == 'Changement d\'étape':
+        return f'Changement d\'étape de {model_type} "{record_name}"'
+
+    # ACTIVITÉ PLANIFIÉE
+    elif action_type == 'Activité planifiée':
+        # Essayer d'extraire le résumé de l'activité depuis le body
+        body = msg.get('body', '')
+        activity_summary = extract_text_from_html(body, max_length=80)
+        if activity_summary:
+            return f'Activité "{activity_summary}" planifiée sur {model_type} "{record_name}"'
+        return f'Activité planifiée sur {model_type} "{record_name}"'
+
+    # OPPORTUNITÉ GAGNÉE/PERDUE
+    elif action_type in ['Opportunité gagnée', 'Opportunité perdue']:
+        return f'{action_type} : "{record_name}"'
+
+    # FACTURE VALIDÉE/PAYÉE/CRÉÉE
+    elif action_type in ['Facture validée', 'Facture payée', 'Facture créée']:
+        return f'{action_type} : "{record_name}"'
+
+    # NOTE INTERNE (autre cas)
+    elif action_type == 'Note interne':
+        preview = msg.get('preview', '') or extract_text_from_html(msg.get('body', ''), max_length=100)
+        if preview:
+            return f'Note interne sur {model_type} "{record_name}" : {preview}'
+        return f'Note interne sur {model_type} "{record_name}"'
+
+    # DISCUSSION
+    elif action_type == 'Discussion':
+        return f'Discussion sur {model_type} "{record_name}"'
+
+    # NOTIFICATION ou autre type générique
     else:
-        # Pour créations, modifications, notifications
-        if record_name:
-            return f"{record_name}"
-        elif model_display:
-            return f"{action_type} ({model_display})"
-        return action_type
+        # Pour toutes les autres actions, format explicite avec le type d'objet
+        return f'{action_type} sur {model_type} "{record_name}"'
+
+
+def extract_text_from_html(html_content: str, max_length: int = 100) -> str:
+    """
+    Extrait le texte propre depuis du HTML en retirant toutes les balises.
+
+    Args:
+        html_content: Contenu HTML à nettoyer
+        max_length: Longueur maximale du texte extrait
+
+    Returns:
+        Texte propre sans HTML, tronqué si nécessaire
+    """
+    if not html_content:
+        return ""
+
+    # Utiliser la fonction strip_html_tags existante
+    text = strip_html_tags(html_content).strip()
+
+    # Remplacer les espaces multiples par un seul
+    text = ' '.join(text.split())
+
+    # Tronquer si trop long
+    if len(text) > max_length:
+        text = text[:max_length] + "..."
+
+    return text
 
 
 def get_model_display_name(model: str) -> str:
@@ -2151,7 +2211,7 @@ def get_model_display_name(model: str) -> str:
         model: Technical model name (e.g., 'res.partner')
 
     Returns:
-        Display name (e.g., 'Contact')
+        Display name in French (e.g., 'Contact')
     """
     model_map = {
         'res.partner': 'Contact',
@@ -2161,12 +2221,20 @@ def get_model_display_name(model: str) -> str:
         'project.task': 'Tâche',
         'project.project': 'Projet',
         'product.product': 'Produit',
+        'product.template': 'Produit',
         'purchase.order': 'Bon de commande',
         'stock.picking': 'Livraison',
         'mail.activity': 'Activité',
+        'calendar.event': 'Événement',
+        'maintenance.equipment': 'Équipement',
+        'maintenance.request': 'Maintenance',
+        'hr.employee': 'Employé',
+        'hr.applicant': 'Candidat',
+        'project.update': 'Mise à jour projet',
     }
 
-    return model_map.get(model, model)
+    # Fallback: prendre le dernier mot après le point et le capitaliser
+    return model_map.get(model, model.split('.')[-1].title())
 
 
 def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
@@ -2243,10 +2311,14 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
         if activities_response.get('status') == 'success':
             for activity in activities_response.get('records', []):
                 if activity.get('date_done'):
-                    # Construire le nom avec contexte
-                    activity_name = activity.get('summary', 'Activité sans nom')
-                    if activity.get('res_name'):
-                        activity_name += f" - {activity['res_name']}"
+                    # Format ultra-explicite : Activité "{Résumé}" sur {Type} : {Nom objet}
+                    summary = activity.get('summary', 'Activité sans nom')
+                    res_model = activity.get('res_model', '')
+                    res_name = activity.get('res_name', f"#{activity.get('res_id', '?')}")
+                    model_type = get_model_display_name(res_model)
+
+                    # Format final explicite
+                    activity_name = f'Activité "{summary}" sur {model_type} : {res_name}'
 
                     all_events.append({
                         'datetime': activity['date_done'],
