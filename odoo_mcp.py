@@ -1963,10 +1963,133 @@ def odoo_activity_report(
         })
 
 
+def determine_action_type(msg: dict) -> str:
+    """
+    Determine the action type based on mail.message attributes.
+
+    Args:
+        msg: mail.message record with message_type, subtype_id fields
+
+    Returns:
+        Human-readable action type (e.g., 'Création', 'Email', 'Note', 'Modification')
+    """
+    message_type = msg.get('message_type', 'notification')
+    subtype_id = msg.get('subtype_id')
+
+    # Email envoyé/reçu
+    if message_type == 'email':
+        return 'Email'
+
+    # Note interne / commentaire
+    if message_type == 'comment':
+        return 'Note'
+
+    # Notification système (création, modification, etc.)
+    if message_type == 'notification':
+        # Analyser le subtype pour plus de précision
+        if subtype_id:
+            subtype_name = subtype_id[1] if isinstance(subtype_id, list) else str(subtype_id)
+
+            # Subtypes courants Odoo
+            if 'created' in subtype_name.lower() or 'création' in subtype_name.lower():
+                return 'Création'
+            elif 'stage' in subtype_name.lower() or 'étape' in subtype_name.lower():
+                return 'Changement de statut'
+            elif 'update' in subtype_name.lower() or 'modif' in subtype_name.lower():
+                return 'Modification'
+            elif 'won' in subtype_name.lower() or 'gagné' in subtype_name.lower():
+                return 'Opportunité gagnée'
+            elif 'lost' in subtype_name.lower() or 'perdu' in subtype_name.lower():
+                return 'Opportunité perdue'
+
+        return 'Notification'
+
+    return 'Action'
+
+
+def build_action_name(msg: dict, action_type: str) -> str:
+    """
+    Build a descriptive name for the action based on mail.message content.
+
+    Args:
+        msg: mail.message record
+        action_type: Action type from determine_action_type()
+
+    Returns:
+        Descriptive action name
+    """
+    # Récupérer le nom du record concerné
+    record_name = msg.get('record_name', '')
+
+    # Récupérer le modèle pour contexte
+    model = msg.get('model', '')
+    model_display = get_model_display_name(model)
+
+    # Construire le nom basé sur le type
+    if action_type == 'Email':
+        subject = msg.get('subject', 'Email sans objet')
+        if record_name:
+            return f"{subject} ({record_name})"
+        return subject
+
+    elif action_type == 'Note':
+        # Extraire début du corps (sans HTML)
+        body = msg.get('body', '')
+        if body:
+            # Nettoyer le HTML et limiter à 50 caractères
+            clean_body = strip_html_tags(body)[:50]
+            if record_name:
+                return f"Note sur {record_name}: {clean_body}..."
+            return f"Note: {clean_body}..."
+        if record_name:
+            return f"Note sur {record_name}"
+        return "Note interne"
+
+    else:
+        # Pour créations, modifications, notifications
+        if record_name:
+            return f"{action_type}: {record_name}"
+        elif model_display:
+            return f"{action_type}: {model_display}"
+        return action_type
+
+
+def get_model_display_name(model: str) -> str:
+    """
+    Get a human-readable display name for Odoo model.
+
+    Args:
+        model: Technical model name (e.g., 'res.partner')
+
+    Returns:
+        Display name (e.g., 'Contact')
+    """
+    model_map = {
+        'res.partner': 'Contact',
+        'crm.lead': 'Opportunité',
+        'sale.order': 'Commande',
+        'account.move': 'Facture',
+        'project.task': 'Tâche',
+        'project.project': 'Projet',
+        'product.product': 'Produit',
+        'purchase.order': 'Bon de commande',
+        'stock.picking': 'Livraison',
+        'mail.activity': 'Activité',
+    }
+
+    return model_map.get(model, model)
+
+
 def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
     """
-    Collect all events (activities, tasks, projects, contacts, opportunities, orders, invoices)
-    and organize them chronologically day by day with timestamps.
+    Collect ALL user actions via mail.message (comprehensive tracking) + mail.activity (completed activities).
+    Organizes events chronologically day by day with timestamps.
+
+    This captures:
+    - All tracked actions on records (creation, status changes, field updates)
+    - Emails sent/received
+    - Internal notes and comments
+    - Completed activities (from mail.activity)
 
     Returns:
         Dict with dates as keys and list of events sorted by time
@@ -1974,7 +2097,39 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
     try:
         all_events = []
 
-        # 1. Activités terminées (date_done)
+        # 1. MAIL.MESSAGE - Capture TOUT ce qui est tracké dans Odoo
+        # Récupère tous les messages créés par l'utilisateur dans la période
+        messages_result = odoo_search(
+            model='mail.message',
+            domain=[
+                ['author_id.user_ids', 'in', [user_id]],  # Messages de cet utilisateur
+                ['date', '>=', start_date],
+                ['date', '<=', end_date]
+            ],
+            fields=['id', 'subject', 'body', 'date', 'model', 'res_id', 'message_type', 'subtype_id', 'record_name'],
+            limit=500  # Augmenté pour capturer plus d'événements
+        )
+        messages_response = json.loads(messages_result)
+        if messages_response.get('status') == 'success':
+            for msg in messages_response.get('records', []):
+                if msg.get('date') and msg.get('model') and msg.get('res_id'):
+                    # Déterminer le type d'action basé sur message_type et subtype
+                    action_type = determine_action_type(msg)
+
+                    # Construire un nom descriptif pour l'action
+                    action_name = build_action_name(msg, action_type)
+
+                    all_events.append({
+                        'datetime': msg['date'],
+                        'type': action_type,
+                        'name': action_name,
+                        'id': msg['res_id'],  # ID du record concerné (pas du message)
+                        'model': msg['model'],
+                        'url': f"{ODOO_URL}/web#id={msg['res_id']}&model={msg['model']}&view_type=form",
+                        'message_id': msg['id']  # Gardé pour référence
+                    })
+
+        # 2. MAIL.ACTIVITY - Activités terminées (complément pour ce qui n'est pas dans mail.message)
         activities_result = odoo_search(
             model='mail.activity',
             domain=[
@@ -1984,184 +2139,25 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                 ['date_done', '<=', end_date],
                 ['user_id', '=', user_id]
             ],
-            fields=['id', 'summary', 'date_done'],
-            limit=100
+            fields=['id', 'summary', 'date_done', 'res_model', 'res_id', 'res_name'],
+            limit=200
         )
         activities_response = json.loads(activities_result)
         if activities_response.get('status') == 'success':
             for activity in activities_response.get('records', []):
                 if activity.get('date_done'):
+                    # Construire le nom avec contexte
+                    activity_name = activity.get('summary', 'Activité sans nom')
+                    if activity.get('res_name'):
+                        activity_name += f" - {activity['res_name']}"
+
                     all_events.append({
                         'datetime': activity['date_done'],
                         'type': 'Activité',
-                        'name': activity.get('summary', 'Activité sans nom'),
-                        'id': activity['id'],
-                        'model': 'mail.activity',
-                        'url': f"{ODOO_URL}/web#id={activity['id']}&model=mail.activity&view_type=form"
-                    })
-
-        # 2. Tâches complétées (date_last_stage_update)
-        tasks_result = odoo_search(
-            model='project.task',
-            domain=[
-                ['user_ids', 'in', [user_id]],
-                ['state', '=', '1_done'],
-                ['date_last_stage_update', '>=', start_date],
-                ['date_last_stage_update', '<=', end_date]
-            ],
-            fields=['id', 'name', 'date_last_stage_update'],
-            limit=100
-        )
-        tasks_response = json.loads(tasks_result)
-        if tasks_response.get('status') == 'success':
-            for task in tasks_response.get('records', []):
-                if task.get('date_last_stage_update'):
-                    all_events.append({
-                        'datetime': task['date_last_stage_update'],
-                        'type': 'Tâche',
-                        'name': task.get('name', 'Tâche sans nom'),
-                        'id': task['id'],
-                        'model': 'project.task',
-                        'url': f"{ODOO_URL}/web#id={task['id']}&model=project.task&view_type=form"
-                    })
-
-        # 3. Projets terminés (via project.update)
-        updates_result = odoo_search(
-            model='project.update',
-            domain=[
-                ['status', '=', 'done'],
-                ['date', '>=', start_date],
-                ['date', '<=', end_date]
-            ],
-            fields=['project_id', 'date'],
-            limit=100
-        )
-        updates_response = json.loads(updates_result)
-        if updates_response.get('status') == 'success':
-            project_ids = [u['project_id'][0] for u in updates_response.get('records', []) if u.get('project_id')]
-            if project_ids:
-                projects_result = odoo_search(
-                    model='project.project',
-                    domain=[
-                        ['id', 'in', project_ids],
-                        '|',
-                        ['user_id', '=', user_id],
-                        ['favorite_user_ids', 'in', [user_id]]
-                    ],
-                    fields=['id', 'name'],
-                    limit=100
-                )
-                projects_response = json.loads(projects_result)
-                if projects_response.get('status') == 'success':
-                    # Map project_id to date
-                    project_date_map = {u['project_id'][0]: u['date'] for u in updates_response.get('records', []) if u.get('project_id')}
-                    for project in projects_response.get('records', []):
-                        project_date = project_date_map.get(project['id'])
-                        if project_date:
-                            all_events.append({
-                                'datetime': project_date,
-                                'type': 'Projet',
-                                'name': project.get('name', 'Projet sans nom'),
-                                'id': project['id'],
-                                'model': 'project.project',
-                                'url': f"{ODOO_URL}/web#id={project['id']}&model=project.project&view_type=kanban"
-                            })
-
-        # 4. Contacts créés (create_date)
-        contacts_result = odoo_search(
-            model='res.partner',
-            domain=[
-                ['user_id', '=', user_id],
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date]
-            ],
-            fields=['id', 'name', 'create_date'],
-            limit=100
-        )
-        contacts_response = json.loads(contacts_result)
-        if contacts_response.get('status') == 'success':
-            for contact in contacts_response.get('records', []):
-                if contact.get('create_date'):
-                    all_events.append({
-                        'datetime': contact['create_date'],
-                        'type': 'Contact',
-                        'name': contact.get('name', 'Contact sans nom'),
-                        'id': contact['id'],
-                        'model': 'res.partner',
-                        'url': f"{ODOO_URL}/web#id={contact['id']}&model=res.partner&view_type=form"
-                    })
-
-        # 5. Opportunités créées (create_date)
-        opportunities_result = odoo_search(
-            model='crm.lead',
-            domain=[
-                ['user_id', '=', user_id],
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date]
-            ],
-            fields=['id', 'name', 'create_date'],
-            limit=100
-        )
-        opportunities_response = json.loads(opportunities_result)
-        if opportunities_response.get('status') == 'success':
-            for opp in opportunities_response.get('records', []):
-                if opp.get('create_date'):
-                    all_events.append({
-                        'datetime': opp['create_date'],
-                        'type': 'Opportunité',
-                        'name': opp.get('name', 'Opportunité sans nom'),
-                        'id': opp['id'],
-                        'model': 'crm.lead',
-                        'url': f"{ODOO_URL}/web#id={opp['id']}&model=crm.lead&view_type=form"
-                    })
-
-        # 6. Commandes créées (create_date)
-        orders_result = odoo_search(
-            model='sale.order',
-            domain=[
-                ['user_id', '=', user_id],
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date]
-            ],
-            fields=['id', 'name', 'create_date'],
-            limit=100
-        )
-        orders_response = json.loads(orders_result)
-        if orders_response.get('status') == 'success':
-            for order in orders_response.get('records', []):
-                if order.get('create_date'):
-                    all_events.append({
-                        'datetime': order['create_date'],
-                        'type': 'Commande',
-                        'name': order.get('name', 'Commande sans nom'),
-                        'id': order['id'],
-                        'model': 'sale.order',
-                        'url': f"{ODOO_URL}/web#id={order['id']}&model=sale.order&view_type=form"
-                    })
-
-        # 7. Factures créées (create_date)
-        invoices_result = odoo_search(
-            model='account.move',
-            domain=[
-                ['invoice_user_id', '=', user_id],
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date],
-                ['move_type', '=', 'out_invoice']
-            ],
-            fields=['id', 'name', 'create_date'],
-            limit=100
-        )
-        invoices_response = json.loads(invoices_result)
-        if invoices_response.get('status') == 'success':
-            for invoice in invoices_response.get('records', []):
-                if invoice.get('create_date'):
-                    all_events.append({
-                        'datetime': invoice['create_date'],
-                        'type': 'Facture',
-                        'name': invoice.get('name', 'Facture sans nom'),
-                        'id': invoice['id'],
-                        'model': 'account.move',
-                        'url': f"{ODOO_URL}/web#id={invoice['id']}&model=account.move&view_type=form"
+                        'name': activity_name,
+                        'id': activity.get('res_id', activity['id']),
+                        'model': activity.get('res_model', 'mail.activity'),
+                        'url': f"{ODOO_URL}/web#id={activity.get('res_id', activity['id'])}&model={activity.get('res_model', 'mail.activity')}&view_type=form"
                     })
 
         # Trier tous les événements par datetime
@@ -2670,7 +2666,11 @@ def generate_daily_timeline_html(daily_timeline):
 
         html = """
         <div style="margin-top: 40px;">
-            <h2 style="border-bottom: 2px solid #dee2e6; padding-bottom: 10px;">Détail chronologique des activités</h2>
+            <h2 style="border-bottom: 2px solid #dee2e6; padding-bottom: 10px;">Historique exhaustif de toutes les actions</h2>
+            <p style="font-style: italic; color: #6c757d; margin-top: 10px;">
+                Cet historique regroupe l'ensemble des actions réalisées sur Odoo durant la période :
+                créations, modifications, emails, notes, changements de statut, activités terminées, etc.
+            </p>
         """
 
         # Trier les dates (du plus ancien au plus récent)
