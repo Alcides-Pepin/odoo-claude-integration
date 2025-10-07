@@ -29,6 +29,34 @@ SECURITY_BLACKLIST = {
     ('ir.module.module', 'button_immediate_uninstall'),  # Never uninstall modules
 }
 
+# Mapping des subtypes mail.message vers actions françaises
+# Ce mapping permet de traduire les subtypes Odoo en actions compréhensibles
+SUBTYPE_MAPPING = {
+    # Génériques
+    1: "Discussion",
+    2: "Note interne",
+    3: "Activité planifiée",
+    4: "Invitation événement",
+
+    # Tâches projet
+    8: "Tâche créée",
+    9: "Changement d'étape",
+    10: "Tâche en cours",
+    14: "Tâche terminée",
+    15: "Tâche en attente",
+
+    # CRM
+    42: "Opportunité créée",
+    43: "Changement d'étape",
+    44: "Opportunité gagnée",
+    45: "Opportunité perdue",
+
+    # Factures
+    5: "Facture validée",
+    6: "Facture payée",
+    7: "Facture créée",
+}
+
 def create_server_proxy(url):
     """Create ServerProxy with timeout"""
     transport = xmlrpc.client.Transport()
@@ -1963,15 +1991,63 @@ def odoo_activity_report(
         })
 
 
+def enrich_messages_with_display_names(messages: list) -> dict:
+    """
+    Récupère les display_name réels des records en batch pour optimiser les performances.
+    Grouper par modèle permet de faire une seule requête par modèle au lieu d'une par message.
+
+    Args:
+        messages: Liste des messages mail.message
+
+    Returns:
+        Dict {(model, res_id): display_name} pour lookup rapide
+    """
+    display_names = {}
+
+    # Grouper les IDs par modèle
+    records_by_model = {}
+    for msg in messages:
+        model = msg.get('model')
+        res_id = msg.get('res_id')
+
+        if model and res_id:
+            if model not in records_by_model:
+                records_by_model[model] = set()
+            records_by_model[model].add(res_id)
+
+    # Récupérer les display_name en batch par modèle
+    for model, ids in records_by_model.items():
+        try:
+            ids_list = list(ids)
+            result = odoo_search(
+                model=model,
+                domain=[['id', 'in', ids_list]],
+                fields=['id', 'display_name'],
+                limit=len(ids_list)
+            )
+
+            result_data = json.loads(result)
+            if result_data.get('status') == 'success':
+                for record in result_data.get('records', []):
+                    key = (model, record['id'])
+                    display_names[key] = record.get('display_name', f"{model}#{record['id']}")
+        except Exception as e:
+            # En cas d'erreur sur un modèle, on continue avec les autres
+            print(f"Warning: Could not fetch display_names for model {model}: {str(e)}")
+            continue
+
+    return display_names
+
+
 def determine_action_type(msg: dict) -> str:
     """
-    Determine the action type based on mail.message attributes.
+    Determine the action type based on mail.message attributes using SUBTYPE_MAPPING.
 
     Args:
         msg: mail.message record with message_type, subtype_id fields
 
     Returns:
-        Human-readable action type (e.g., 'Création', 'Email', 'Note', 'Modification')
+        Human-readable action type (e.g., 'Création', 'Email', 'Note', 'Tâche créée')
     """
     message_type = msg.get('message_type', 'notification')
     subtype_id = msg.get('subtype_id')
@@ -1982,44 +2058,54 @@ def determine_action_type(msg: dict) -> str:
 
     # Note interne / commentaire
     if message_type == 'comment':
-        return 'Note'
+        return 'Commentaire'
 
     # Notification système (création, modification, etc.)
     if message_type == 'notification':
-        # Analyser le subtype pour plus de précision
+        # Utiliser le mapping des subtypes pour identifier l'action précise
         if subtype_id:
+            # subtype_id est un tuple [id, "nom"] ou juste un int
+            subtype_numeric_id = subtype_id[0] if isinstance(subtype_id, list) else subtype_id
             subtype_name = subtype_id[1] if isinstance(subtype_id, list) else str(subtype_id)
 
-            # Subtypes courants Odoo
-            if 'created' in subtype_name.lower() or 'création' in subtype_name.lower():
+            # Chercher dans le mapping
+            if subtype_numeric_id in SUBTYPE_MAPPING:
+                return SUBTYPE_MAPPING[subtype_numeric_id]
+
+            # Fallback sur l'analyse du nom si pas dans le mapping
+            subtype_lower = subtype_name.lower()
+            if 'created' in subtype_lower or 'création' in subtype_lower or 'créé' in subtype_lower:
                 return 'Création'
-            elif 'stage' in subtype_name.lower() or 'étape' in subtype_name.lower():
-                return 'Changement de statut'
-            elif 'update' in subtype_name.lower() or 'modif' in subtype_name.lower():
+            elif 'stage' in subtype_lower or 'étape' in subtype_lower:
+                return 'Changement d\'étape'
+            elif 'update' in subtype_lower or 'modif' in subtype_lower:
                 return 'Modification'
-            elif 'won' in subtype_name.lower() or 'gagné' in subtype_name.lower():
+            elif 'won' in subtype_lower or 'gagné' in subtype_lower:
                 return 'Opportunité gagnée'
-            elif 'lost' in subtype_name.lower() or 'perdu' in subtype_name.lower():
+            elif 'lost' in subtype_lower or 'perdu' in subtype_lower:
                 return 'Opportunité perdue'
+            elif 'done' in subtype_lower or 'terminé' in subtype_lower:
+                return 'Terminé'
 
         return 'Notification'
 
     return 'Action'
 
 
-def build_action_name(msg: dict, action_type: str) -> str:
+def build_action_name(msg: dict, action_type: str, enriched_display_name: str = None) -> str:
     """
     Build a descriptive name for the action based on mail.message content.
 
     Args:
         msg: mail.message record
         action_type: Action type from determine_action_type()
+        enriched_display_name: Real display_name retrieved from batch enrichment (optional)
 
     Returns:
         Descriptive action name
     """
-    # Récupérer le nom du record concerné
-    record_name = msg.get('record_name', '')
+    # Utiliser le display_name enrichi en priorité, sinon fallback sur record_name
+    record_name = enriched_display_name or msg.get('record_name', '')
 
     # Récupérer le modèle pour contexte
     model = msg.get('model', '')
@@ -2029,28 +2115,31 @@ def build_action_name(msg: dict, action_type: str) -> str:
     if action_type == 'Email':
         subject = msg.get('subject', 'Email sans objet')
         if record_name:
-            return f"{subject} ({record_name})"
+            return f"{subject} (sur {record_name})"
         return subject
 
-    elif action_type == 'Note':
-        # Extraire début du corps (sans HTML)
-        body = msg.get('body', '')
-        if body:
-            # Nettoyer le HTML et limiter à 50 caractères
-            clean_body = strip_html_tags(body)[:50]
+    elif action_type == 'Commentaire':
+        # Extraire début du corps (sans HTML) ou utiliser preview si disponible
+        preview = msg.get('preview', '')
+        if not preview:
+            body = msg.get('body', '')
+            if body:
+                preview = strip_html_tags(body)[:50]
+
+        if preview:
             if record_name:
-                return f"Note sur {record_name}: {clean_body}..."
-            return f"Note: {clean_body}..."
+                return f"Commentaire sur {record_name}: {preview}..."
+            return f"Commentaire: {preview}..."
         if record_name:
-            return f"Note sur {record_name}"
-        return "Note interne"
+            return f"Commentaire sur {record_name}"
+        return "Commentaire interne"
 
     else:
         # Pour créations, modifications, notifications
         if record_name:
-            return f"{action_type}: {record_name}"
+            return f"{record_name}"
         elif model_display:
-            return f"{action_type}: {model_display}"
+            return f"{action_type} ({model_display})"
         return action_type
 
 
@@ -2106,18 +2195,26 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                 ['date', '>=', start_date],
                 ['date', '<=', end_date]
             ],
-            fields=['id', 'subject', 'body', 'date', 'model', 'res_id', 'message_type', 'subtype_id', 'record_name'],
+            fields=['id', 'subject', 'body', 'preview', 'date', 'model', 'res_id', 'message_type', 'subtype_id', 'record_name'],
             limit=500  # Augmenté pour capturer plus d'événements
         )
         messages_response = json.loads(messages_result)
+
+        # Enrichir les messages avec les vrais display_name en batch
+        messages_list = messages_response.get('records', []) if messages_response.get('status') == 'success' else []
+        display_names_map = enrich_messages_with_display_names(messages_list)
+
         if messages_response.get('status') == 'success':
-            for msg in messages_response.get('records', []):
+            for msg in messages_list:
                 if msg.get('date') and msg.get('model') and msg.get('res_id'):
+                    # Récupérer le vrai display_name depuis le map
+                    enriched_name = display_names_map.get((msg['model'], msg['res_id']), None)
+
                     # Déterminer le type d'action basé sur message_type et subtype
                     action_type = determine_action_type(msg)
 
-                    # Construire un nom descriptif pour l'action
-                    action_name = build_action_name(msg, action_type)
+                    # Construire un nom descriptif pour l'action avec le vrai nom
+                    action_name = build_action_name(msg, action_type, enriched_name)
 
                     all_events.append({
                         'datetime': msg['date'],
