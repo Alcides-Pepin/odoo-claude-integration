@@ -2264,7 +2264,7 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                 ['date', '<=', end_date]
             ],
             fields=['id', 'subject', 'body', 'preview', 'date', 'model', 'res_id', 'message_type', 'subtype_id', 'record_name'],
-            limit=500  # Augmenté pour capturer plus d'événements
+            limit=100000  # Limite très élevée pour historique complet (inatteignable en pratique)
         )
         messages_response = json.loads(messages_result)
 
@@ -2305,7 +2305,7 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                 ['user_id', '=', user_id]
             ],
             fields=['id', 'summary', 'date_done', 'res_model', 'res_id', 'res_name'],
-            limit=200
+            limit=100000  # Limite très élevée pour historique complet (inatteignable en pratique)
         )
         activities_response = json.loads(activities_result)
         if activities_response.get('status') == 'success':
