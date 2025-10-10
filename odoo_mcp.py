@@ -1078,7 +1078,8 @@ def get_new_clients_count_individual(
                     ['create_date', '<=', end_date],
                     ['user_id', '=', user_id]
                 ],
-                fields=['partner_id']
+                fields=['partner_id'],
+                limit=10000  # Récupérer toutes les commandes pour ne rater aucun client
             )
 
             response = json.loads(result)
@@ -1165,7 +1166,7 @@ def get_new_clients_details_individual(start_date: str, end_date: str, user_ids:
                     ['user_id', '=', user_id]
                 ],
                 fields=['partner_id'],
-                limit=100
+                limit=10000  # Récupérer toutes les commandes pour ne rater aucun client
             )
             
             response = json.loads(result)
@@ -1264,7 +1265,7 @@ def get_new_clients_details_individual(start_date: str, end_date: str, user_ids:
                     ['user_id', '=', user_id]
                 ],
                 fields=['partner_id'],
-                limit=100
+                limit=10000  # Récupérer toutes les commandes pour ne rater aucun client
             )
             
             response = json.loads(result)
