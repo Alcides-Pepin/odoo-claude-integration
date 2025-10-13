@@ -355,26 +355,26 @@ def odoo_search(
 ) -> str:
     """
     Search and retrieve records from any Odoo model with advanced filtering.
-    
+
     Args:
         model: The Odoo model to search in (e.g., 'res.partner')
         domain: Odoo domain filter (e.g., [['name', 'ilike', 'john']])
         fields: List of fields to return (if None, returns all fields)
-        limit: Maximum number of records to return (default: 10, max: 100)
+        limit: Maximum number of records to return (default: 10, max: 100000)
         offset: Number of records to skip (for pagination)
         order: Sort order (e.g., 'name desc, id')
-    
+
     Returns:
         JSON string with search results
     """
     try:
         models, uid = get_odoo_connection()
-        
+
         # Validate and set defaults
         if domain is None:
             domain = []
-        if limit > 100:
-            limit = 100  # Cap at 100 for performance
+        if limit > 100000:
+            limit = 100000  # Cap at 100,000 for performance
         
         # First, check if the model exists
         model_exists = models.execute_kw(
