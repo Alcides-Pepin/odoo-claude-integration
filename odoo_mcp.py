@@ -4,6 +4,7 @@ import os
 import xmlrpc.client
 import socket
 import time
+import base64
 from typing import Any, List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
 import anthropic
@@ -1902,6 +1903,73 @@ def create_report_task(report_data, project_id, task_column_id):
         raise Exception(f"Error creating report task: {str(e)}")
 
 
+def generate_timeline_pdf(daily_timeline, user_name, start_date, end_date):
+    """
+    Generate PDF from daily timeline HTML
+
+    Args:
+        daily_timeline: Dict with daily timeline data
+        user_name: Name of the user
+        start_date: Start date string
+        end_date: End date string
+
+    Returns:
+        bytes: PDF content as bytes
+    """
+    from weasyprint import HTML
+
+    # Générer le HTML de l'historique (fonction existante)
+    timeline_html = generate_daily_timeline_html(daily_timeline)
+
+    # Créer un HTML complet avec styles pour le PDF
+    full_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                margin: 20px;
+                font-size: 11pt;
+            }}
+            h1 {{
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+            }}
+            h2 {{
+                color: #34495e;
+                margin-top: 30px;
+            }}
+            h3 {{
+                color: #7f8c8d;
+                margin-top: 20px;
+            }}
+            a {{
+                color: #3498db;
+                text-decoration: none;
+            }}
+            .separator {{
+                border-top: 2px solid #ecf0f1;
+                margin: 20px 0;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Historique exhaustif des actions</h1>
+        <h2>{user_name} - Du {start_date} au {end_date}</h2>
+        {timeline_html}
+    </body>
+    </html>
+    """
+
+    # Générer le PDF
+    pdf_bytes = HTML(string=full_html).write_pdf()
+
+    return pdf_bytes
+
+
 def generate_activity_report_html_table(report_data):
     """Generate HTML table for activity report with detailed lists"""
     try:
@@ -2076,6 +2144,15 @@ def generate_activity_report_html_table(report_data):
         html += """
                 </tbody>
             </table>
+
+            <div style="margin-top: 30px; padding: 15px; background-color: #e3f2fd; border-left: 4px solid #2196f3;">
+                <p style="margin: 0; font-size: 14pt;">
+                    <strong>📄 Historique exhaustif des actions</strong>
+                </p>
+                <p style="margin: 10px 0 0 0; color: #666;">
+                    Le détail chronologique complet de toutes les actions est disponible en pièce jointe (PDF).
+                </p>
+            </div>
         </div>
         """
 
@@ -2148,6 +2225,15 @@ def odoo_activity_report(
 
         # PARTIE 1: Collecter les données pour le tableau récapitulatif
         print(f"[INFO] Collecting summary data (activities, tasks, projects)...")
+        activities_data = collect_activities_data(start_date, end_date, user_id)
+        tasks_data = collect_tasks_data(start_date, end_date, user_id)
+        projects_data = collect_projects_data(start_date, end_date, user_id)
+
+        # PARTIE 2: Collecter la timeline enrichie pour la liste exhaustive
+        print(f"[INFO] Collecting daily timeline data...")
+        daily_timeline = collect_daily_timeline_data(start_date, end_date, user_id)
+
+        # PARTIE 3: Construire report_data avec toutes les données
         report_data = {
             "user_info": {
                 "user_id": user_id,
@@ -2155,39 +2241,23 @@ def odoo_activity_report(
                 "start_date": start_date,
                 "end_date": end_date
             },
-            "activities_data": collect_activities_data(start_date, end_date, user_id),
-            "tasks_data": collect_tasks_data(start_date, end_date, user_id),
-            "projects_data": collect_projects_data(start_date, end_date, user_id)
+            "activities_data": activities_data,
+            "tasks_data": tasks_data,
+            "projects_data": projects_data,
+            "daily_timeline": daily_timeline
         }
 
-        # PARTIE 2: Collecter la timeline enrichie pour la liste exhaustive
-        print(f"[INFO] Collecting daily timeline data...")
-        timeline_data = collect_daily_timeline_data(start_date, end_date, user_id)
-
-        # PARTIE 3: Générer le tableau récapitulatif HTML
-        print(f"[INFO] Generating summary table HTML...")
-        summary_table_html = generate_activity_report_html_table(report_data)
-
-        # PARTIE 4: Générer la timeline exhaustive HTML
-        print(f"[INFO] Generating detailed timeline HTML...")
-        timeline_html = generate_daily_timeline_html(timeline_data)
-
-        # PARTIE 5: Combiner les deux parties avec un séparateur visuel
-        combined_html = summary_table_html + "\n\n<hr style='margin: 40px 0; border: 2px solid #dee2e6;'/>\n\n" + timeline_html
-
-        # Create task with the combined HTML report
-        task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
-        print(f"[INFO] Creating report task...")
+        # PARTIE 4: Créer la tâche avec le rapport (génération HTML et PDF faite dans la fonction)
+        print(f"[INFO] Creating report task with PDF attachment...")
         task_id = create_activity_report_task(
-            task_name=task_name,
-            html_content=combined_html,
+            report_data=report_data,
             project_id=project_id,
-            task_column_id=task_column_id,
-            user_id=user_id
+            task_column_id=task_column_id
         )
 
         # Count total events for summary
-        total_events = sum(len(events) for events in timeline_data.values())
+        total_events = sum(len(events) for events in daily_timeline.values())
+        task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
 
         return json.dumps({
             "status": "success",
@@ -2195,7 +2265,7 @@ def odoo_activity_report(
             "period": f"{start_date} to {end_date}",
             "task_id": task_id,
             "task_name": task_name,
-            "total_days": len(timeline_data),
+            "total_days": len(daily_timeline),
             "total_events": total_events,
             "timestamp": datetime.datetime.now().isoformat()
         }, indent=2)
@@ -3761,22 +3831,33 @@ def generate_activity_report_html_table(report_data):
     except Exception as e:
         raise Exception(f"Error generating HTML table: {str(e)}")
 
-def create_activity_report_task(task_name, html_content, project_id, task_column_id, user_id):
+def create_activity_report_task(report_data, project_id, task_column_id):
     """
-    Create an Odoo task with the activity report.
+    Create an Odoo task with the activity report and attach timeline PDF.
 
     Args:
-        task_name: Name of the task to create
-        html_content: HTML content for the task description
+        report_data: Dict containing user_info, activities_data, tasks_data, projects_data, and daily_timeline
         project_id: ID of the project where the task will be created
         task_column_id: ID of the stage/column where the task will be placed
-        user_id: ID of the user to assign the task to
 
     Returns:
         Task ID of the created task
     """
     try:
-        # Create task using odoo_execute
+        user_info = report_data.get('user_info', {})
+        user_name = user_info.get('user_name', 'N/A')
+        user_id = user_info.get('user_id')
+        start_date = user_info.get('start_date', 'N/A')
+        end_date = user_info.get('end_date', 'N/A')
+
+        # 1. Generate task title
+        task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
+
+        # 2. Generate SHORT HTML description (without exhaustive timeline)
+        html_description = generate_activity_report_html_table(report_data)
+
+        # 3. Create task
+        print(f"[INFO] Creating task: {task_name}")
         result = odoo_execute(
             model='project.task',
             method='create',
@@ -3784,18 +3865,67 @@ def create_activity_report_task(task_name, html_content, project_id, task_column
                 'name': task_name,
                 'project_id': project_id,
                 'stage_id': task_column_id,
-                'description': html_content,
-                'user_ids': [(4, user_id)]  # Assign to the user
+                'description': html_description,
+                'user_ids': [(4, user_id)]
             }]
         )
 
         response = json.loads(result)
-        if response.get('status') == 'success':
-            task_id = response.get('result')
-            print(f"[SUCCESS] Created task #{task_id}: {task_name}")
-            return task_id
-        else:
+        if response.get('status') != 'success':
             raise Exception(f"Task creation failed: {response.get('error', 'Unknown error')}")
+
+        task_id = response.get('result')
+        print(f"[SUCCESS] Created task #{task_id}: {task_name}")
+
+        # 4. Generate PDF of exhaustive timeline
+        print(f"[INFO] Generating PDF for exhaustive timeline...")
+        daily_timeline = report_data.get('daily_timeline', {})
+        pdf_bytes = generate_timeline_pdf(daily_timeline, user_name, start_date, end_date)
+        pdf_base64 = base64.b64encode(pdf_bytes).decode()
+
+        # 5. Create attachment
+        print(f"[INFO] Creating PDF attachment...")
+        attachment_result = odoo_execute(
+            model='ir.attachment',
+            method='create',
+            args=[{
+                'name': f'Historique_exhaustif_{user_name.replace(" ", "_")}_{start_date}_{end_date}.pdf',
+                'type': 'binary',
+                'datas': pdf_base64,
+                'res_model': 'project.task',
+                'res_id': task_id,
+                'mimetype': 'application/pdf'
+            }]
+        )
+
+        attachment_response = json.loads(attachment_result)
+        if attachment_response.get('status') != 'success':
+            raise Exception(f"Attachment creation failed: {attachment_response.get('error', 'Unknown error')}")
+
+        attachment_id = attachment_response.get('result')
+        print(f"[SUCCESS] Created PDF attachment #{attachment_id}")
+
+        # 6. Post message in chatter with PDF
+        print(f"[INFO] Posting message in chatter...")
+        message_result = odoo_execute(
+            model='mail.message',
+            method='create',
+            args=[{
+                'body': '<p>📊 <strong>Historique exhaustif des actions disponible en pièce jointe</strong></p><p>Ce document PDF contient le détail chronologique complet de toutes les actions réalisées durant la période du rapport.</p>',
+                'model': 'project.task',
+                'res_id': task_id,
+                'message_type': 'comment',
+                'attachment_ids': [(4, attachment_id)]
+            }]
+        )
+
+        message_response = json.loads(message_result)
+        if message_response.get('status') != 'success':
+            raise Exception(f"Message posting failed: {message_response.get('error', 'Unknown error')}")
+
+        print(f"[SUCCESS] Posted message with PDF attachment in task #{task_id}")
+
+        return task_id
 
     except Exception as e:
         raise Exception(f"Error creating activity report task: {str(e)}")
