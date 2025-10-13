@@ -1904,22 +1904,22 @@ def create_report_task(report_data, project_id, task_column_id):
 @mcp.tool()
 def odoo_activity_report(
     user_id: int,
-    start_date: str, 
+    start_date: str,
     end_date: str,
     project_id: int,
     task_column_id: int
 ) -> str:
     """
-    Generate a comprehensive activity report for a user over a specified period.
-    Collects activities, tasks, and projects data from Odoo and creates a task with the report.
-    
+    Generate a comprehensive daily timeline activity report for a user over a specified period.
+    Uses the enriched timeline collection system to track all user activities day by day.
+
     Args:
         user_id: ID of the Odoo user to generate report for
         start_date: Start date in ISO format (YYYY-MM-DD)
         end_date: End date in ISO format (YYYY-MM-DD)
         project_id: ID of the project where the report task will be created
         task_column_id: ID of the task column/stage where the report will be placed
-    
+
     Returns:
         JSON string with the complete activity report data
     """
@@ -1933,17 +1933,17 @@ def odoo_activity_report(
                 "status": "error",
                 "message": "Invalid date format. Use YYYY-MM-DD format."
             })
-        
-        # Validate that start_date is before end_date
-        if start_date >= end_date:
+
+        # Validate that start_date is before or equal to end_date
+        if start_date > end_date:
             return json.dumps({
-                "status": "error", 
-                "message": "start_date must be before end_date"
+                "status": "error",
+                "message": "start_date must be before or equal to end_date"
             })
-        
+
         # Test Odoo connection first
         models, uid = get_odoo_connection()
-        
+
         # Verify user exists
         user_check = odoo_search(
             model='res.users',
@@ -1957,35 +1957,40 @@ def odoo_activity_report(
                 "status": "error",
                 "message": f"User with ID {user_id} not found"
             })
-        
+
         user_name = user_response['records'][0]['name']
-        
-        # Collect all report data
-        report_data = {
-            "user_info": {
-                "user_id": user_id,
-                "user_name": user_name,
-                "start_date": start_date,
-                "end_date": end_date
-            },
-            "activities_data": collect_activities_data(start_date, end_date, user_id),
-            "tasks_data": collect_tasks_data(start_date, end_date, user_id),
-            "projects_data": collect_projects_data(start_date, end_date, user_id)
-        }
-        
-        # Create task with formatted report
-        task_id = create_activity_report_task(report_data, project_id, task_column_id)
-        
+
+        # Collect daily timeline data using the new enriched system
+        print(f"[INFO] Generating activity report for {user_name} (user_id={user_id}) from {start_date} to {end_date}")
+        timeline_data = collect_daily_timeline_data(start_date, end_date, user_id)
+
+        # Generate HTML report from timeline data
+        html_report = generate_daily_timeline_html(timeline_data)
+
+        # Create task with the enriched HTML report
+        task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
+        task_id = create_activity_report_task(
+            task_name=task_name,
+            html_content=html_report,
+            project_id=project_id,
+            task_column_id=task_column_id,
+            user_id=user_id
+        )
+
+        # Count total events for summary
+        total_events = sum(len(events) for events in timeline_data.values())
+
         return json.dumps({
             "status": "success",
             "message": f"Activity report generated successfully for {user_name}",
             "period": f"{start_date} to {end_date}",
             "task_id": task_id,
-            "task_name": f"Rapport d'activité - {user_name} ({start_date} au {end_date})",
-            "report_data": report_data,
+            "task_name": task_name,
+            "total_days": len(timeline_data),
+            "total_events": total_events,
             "timestamp": datetime.datetime.now().isoformat()
         }, indent=2)
-        
+
     except Exception as e:
         return json.dumps({
             "status": "error",
@@ -2064,6 +2069,16 @@ def determine_action_type(msg: dict) -> str:
 
     # Notification système (création, modification, etc.)
     if message_type == 'notification':
+        # Vérifier le contenu du body pour détecter des cas spécifiques
+        # IMPORTANT : Nettoyer le HTML AVANT de chercher le texte
+        body_html = msg.get('body', '') or msg.get('preview', '')
+        body_text = extract_text_from_html(body_html, max_length=None)
+        body_lower = body_text.lower()
+
+        # Détecter "To-Do terminée" ou activité terminée
+        if 'to-do terminée' in body_lower or 'todo terminée' in body_lower:
+            return 'To-Do terminée'
+
         # Utiliser le mapping des subtypes pour identifier l'action précise
         if subtype_id:
             # subtype_id est un tuple [id, "nom"] ou juste un int
@@ -2144,13 +2159,28 @@ def build_action_name(msg: dict, action_type: str, enriched_display_name: str = 
     elif action_type == 'Changement d\'étape':
         return f'Changement d\'étape de {model_type} "{record_name}"'
 
+    # TO-DO TERMINÉE
+    elif action_type == 'To-Do terminée':
+        # Essayer d'extraire le résumé de l'activité depuis le body (sans limite)
+        body = msg.get('body', '')
+        activity_summary = extract_text_from_html(body, max_length=None)
+        if activity_summary:
+            # Formater sur plusieurs lignes pour plus de lisibilité
+            return (f'To-Do terminée\n'
+                   f'   • Résumé : {activity_summary}\n'
+                   f'   • Sur : {model_type} "{record_name}"')
+        return f'To-Do terminée sur {model_type} "{record_name}"'
+
     # ACTIVITÉ PLANIFIÉE
     elif action_type == 'Activité planifiée':
-        # Essayer d'extraire le résumé de l'activité depuis le body
+        # Essayer d'extraire le résumé de l'activité depuis le body (sans limite)
         body = msg.get('body', '')
-        activity_summary = extract_text_from_html(body, max_length=80)
+        activity_summary = extract_text_from_html(body, max_length=None)
         if activity_summary:
-            return f'Activité "{activity_summary}" planifiée sur {model_type} "{record_name}"'
+            # Formater sur plusieurs lignes pour plus de lisibilité
+            return (f'Activité planifiée\n'
+                   f'   • Résumé : {activity_summary}\n'
+                   f'   • Sur : {model_type} "{record_name}"')
         return f'Activité planifiée sur {model_type} "{record_name}"'
 
     # OPPORTUNITÉ GAGNÉE/PERDUE
@@ -2178,13 +2208,13 @@ def build_action_name(msg: dict, action_type: str, enriched_display_name: str = 
         return f'{action_type} sur {model_type} "{record_name}"'
 
 
-def extract_text_from_html(html_content: str, max_length: int = 100) -> str:
+def extract_text_from_html(html_content: str, max_length: int = None) -> str:
     """
     Extrait le texte propre depuis du HTML en retirant toutes les balises.
 
     Args:
         html_content: Contenu HTML à nettoyer
-        max_length: Longueur maximale du texte extrait
+        max_length: Longueur maximale du texte extrait (None = pas de limite)
 
     Returns:
         Texte propre sans HTML, tronqué si nécessaire
@@ -2192,14 +2222,28 @@ def extract_text_from_html(html_content: str, max_length: int = 100) -> str:
     if not html_content:
         return ""
 
-    # Utiliser la fonction strip_html_tags existante
-    text = strip_html_tags(html_content).strip()
+    import re
 
-    # Remplacer les espaces multiples par un seul
-    text = ' '.join(text.split())
+    # ÉTAPE 1 : Convertir les balises HTML de saut de ligne en \n AVANT de supprimer les balises
+    html_with_newlines = html_content
+    # Remplacer les balises de bloc par des sauts de ligne
+    html_with_newlines = re.sub(r'</p>', '\n', html_with_newlines, flags=re.IGNORECASE)
+    html_with_newlines = re.sub(r'</div>', '\n', html_with_newlines, flags=re.IGNORECASE)
+    html_with_newlines = re.sub(r'</li>', '\n', html_with_newlines, flags=re.IGNORECASE)
+    html_with_newlines = re.sub(r'</h[1-6]>', '\n', html_with_newlines, flags=re.IGNORECASE)
+    html_with_newlines = re.sub(r'<br\s*/?>', '\n', html_with_newlines, flags=re.IGNORECASE)
+    html_with_newlines = re.sub(r'</tr>', '\n', html_with_newlines, flags=re.IGNORECASE)
 
-    # Tronquer si trop long
-    if len(text) > max_length:
+    # ÉTAPE 2 : Supprimer toutes les balises HTML restantes
+    text = strip_html_tags(html_with_newlines).strip()
+
+    # ÉTAPE 3 : Nettoyer les espaces multiples LIGNE PAR LIGNE (préserver les newlines)
+    lines = text.split('\n')
+    cleaned_lines = [' '.join(line.split()) for line in lines]
+    text = '\n'.join(line for line in cleaned_lines if line.strip())
+
+    # ÉTAPE 4 : Tronquer si trop long (seulement si max_length est spécifié)
+    if max_length and len(text) > max_length:
         text = text[:max_length] + "..."
 
     return text
@@ -2321,10 +2365,27 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                 ['date', '>=', start_date],
                 ['date', '<=', end_date]
             ],
-            fields=['id', 'subject', 'body', 'preview', 'date', 'model', 'res_id', 'message_type', 'subtype_id', 'record_name'],
+            fields=[
+                'id', 'subject', 'body', 'preview', 'date', 'model', 'res_id',
+                'message_type', 'subtype_id', 'record_name',
+                # Champs enrichis accessibles sans droits admin
+                'attachment_ids',      # Pièces jointes
+                'partner_ids',         # Utilisateurs tagués
+                'email_from',          # Expéditeur email
+                # Champs nécessitant droits admin (désactivés)
+                # 'tracking_value_ids',  # Nécessite groupe Administration/Settings
+                # Champs secondaires (non nécessaires pour l'instant)
+                # 'is_internal', 'record_company_id', 'parent_id', 'mail_activity_type_id',
+                # 'rating_value', 'starred', 'pinned_at'
+            ],
             limit=100000  # Limite très élevée pour historique complet (inatteignable en pratique)
         )
         messages_response = json.loads(messages_result)
+
+        # DEBUG: Log de la réponse brute
+        print(f"[DEBUG] Statut de la requête mail.message : {messages_response.get('status')}")
+        if messages_response.get('status') != 'success':
+            print(f"[DEBUG] ERREUR dans la requête mail.message: {messages_response.get('error', 'Erreur inconnue')}")
 
         # Enrichir les messages avec les vrais display_name en batch
         messages_list = messages_response.get('records', []) if messages_response.get('status') == 'success' else []
@@ -2357,7 +2418,20 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                         'id': msg['res_id'],  # ID du record concerné (pas du message)
                         'model': msg['model'],
                         'url': f"{ODOO_URL}/web#id={msg['res_id']}&model={msg['model']}&view_type=form",
-                        'message_id': msg['id']  # Gardé pour référence
+                        'message_id': msg['id'],  # Gardé pour référence
+                        # Champs enrichis accessibles
+                        'subject': msg.get('subject'),
+                        'body': msg.get('body'),
+                        'preview': msg.get('preview'),
+                        'record_name': enriched_name or msg.get('record_name'),
+                        'message_type': msg.get('message_type'),
+                        'subtype_id': msg.get('subtype_id'),
+                        'attachment_ids': msg.get('attachment_ids', []),
+                        'partner_ids': msg.get('partner_ids', []),
+                        'email_from': msg.get('email_from'),
+                        # Champs non récupérés (nécessitent droits admin ou non nécessaires)
+                        # 'tracking_value_ids', 'is_internal', 'record_company_id', 'parent_id',
+                        # 'mail_activity_type_id', 'rating_value', 'starred', 'pinned_at'
                     })
                 else:
                     # DEBUG: Log des messages filtrés
@@ -2915,9 +2989,123 @@ def get_completed_projects_count(start_date: str, end_date: str, user_id: int):
         raise Exception(f"Error getting completed projects count: {str(e)}")
 
 
+def format_activity_html(activity):
+    """Format a single activity in the new style"""
+    name = activity.get('name', 'Activité sans nom')
+    url = activity.get('url', '#')
+
+    html = f"""
+    <div style="margin-left: 20px; margin-bottom: 15px;">
+        ✓ {name}
+        <div style="margin-left: 20px; color: #6c757d; font-size: 0.9em;">
+            └─ Lien : <a href="{url}" style="color: #007bff;">{url}</a>
+        </div>
+    </div>
+    """
+    return html
+
+
+def format_message_html(event):
+    """Format a single message event in the new detailed style"""
+    try:
+        # Extraire l'heure
+        try:
+            event_datetime = datetime.datetime.fromisoformat(event['datetime'].replace('Z', '+00:00'))
+            time_str = event_datetime.strftime('%H:%M')
+        except:
+            time_str = '00:00'
+
+        # Titre en majuscules basé sur le type
+        title = event.get('type', 'ACTION').upper()
+
+        # Section "Ce qui s'est passé"
+        what_happened = event.get('name', 'Action non spécifiée')
+
+        # Section "Où ça se passe"
+        model_display = get_model_display_name(event.get('model', ''))
+        record_name = event.get('record_name', 'N/A')
+        doc_url = event.get('url', '#')
+
+        html = f"""
+        <div style="margin: 20px 0; padding: 15px; border: 1px solid #dee2e6; border-radius: 5px; background-color: #f8f9fa;">
+            <div style="border-bottom: 2px solid #495057; padding-bottom: 5px; margin-bottom: 10px;">
+                <strong>{time_str} | {title}</strong>
+            </div>
+
+            <p style="margin: 10px 0;"><strong>Ce qui s'est passé</strong></p>
+            <div style="margin-left: 20px; white-space: pre-wrap;">{what_happened}</div>
+
+            <p style="margin: 10px 0;"><strong>Où ça se passe</strong></p>
+            <div style="margin-left: 20px;">
+                • Type : {model_display}<br/>
+                • Nom : {record_name}<br/>
+                • Voir le document : <a href="{doc_url}" style="color: #007bff;">{doc_url}</a>
+            </div>
+        """
+
+        # Section conditionnelle : Corps du message
+        # Utiliser le body complet plutôt que le preview qui est pré-tronqué par Odoo
+        body = event.get('body')
+        if body and body.strip():
+            # Extraire le texte complet du body HTML
+            body_text = extract_text_from_html(body, max_length=None)
+            if body_text:
+                html += f"""
+            <p style="margin: 10px 0;"><strong>Contenu du message</strong></p>
+            <div style="margin-left: 20px; font-style: italic; color: #6c757d; white-space: pre-wrap;">{body_text}</div>
+            """
+
+        # Section conditionnelle : Email
+        if event.get('message_type') == 'email':
+            subject = event.get('subject', 'Sans sujet')
+            email_from = event.get('email_from', 'N/A')
+            html += f"""
+            <p style="margin: 10px 0;"><strong>Email envoyé</strong></p>
+            <div style="margin-left: 20px;">
+                • Sujet : {subject}<br/>
+                • De : {email_from}
+            </div>
+            """
+
+        # Section conditionnelle : Pièces jointes
+        attachment_ids = event.get('attachment_ids', [])
+        if attachment_ids and len(attachment_ids) > 0:
+            count = len(attachment_ids)
+            html += f"""
+            <p style="margin: 10px 0;"><strong>Fichiers joints</strong></p>
+            <div style="margin-left: 20px;">📎 {count} fichier(s) joint(s)</div>
+            """
+
+        # Section conditionnelle : Utilisateurs tagués
+        partner_ids = event.get('partner_ids', [])
+        if partner_ids and len(partner_ids) > 0:
+            html += f"""
+            <p style="margin: 10px 0;"><strong>Utilisateurs concernés</strong></p>
+            <div style="margin-left: 20px;">🏷️ {len(partner_ids)} utilisateur(s) tagué(s)</div>
+            """
+
+        # Détails du message
+        msg_url = f"{ODOO_URL}/web#id={event.get('message_id')}&model=mail.message&view_type=form"
+
+        html += f"""
+            <p style="margin: 10px 0;"><strong>Détails du message</strong></p>
+            <div style="margin-left: 20px; font-size: 0.85em; color: #6c757d;">
+                • Voir le message : <a href="{msg_url}" style="color: #007bff;">{msg_url}</a><br/>
+                • Type : {event.get('message_type', 'N/A')}
+            </div>
+        </div>
+        """
+
+        return html
+
+    except Exception as e:
+        return f"<div style='color: red;'>Erreur formatage événement: {str(e)}</div>"
+
+
 def generate_daily_timeline_html(daily_timeline):
     """
     Generate HTML for day-by-day chronological timeline of all activities.
+    NEW VERSION with enriched format and detailed sections.
 
     Args:
         daily_timeline: Dict with dates as keys and list of events as values
@@ -2939,10 +3127,10 @@ def generate_daily_timeline_html(daily_timeline):
 
         html = """
         <div style="margin-top: 40px;">
-            <h2 style="border-bottom: 2px solid #dee2e6; padding-bottom: 10px;">Historique exhaustif de toutes les actions</h2>
+            <h2 style="border-bottom: 2px solid #dee2e6; padding-bottom: 10px;">📋 Historique exhaustif de toutes les actions</h2>
             <p style="font-style: italic; color: #6c757d; margin-top: 10px;">
-                Cet historique regroupe l'ensemble des actions réalisées sur Odoo durant la période :
-                créations, modifications, emails, notes, changements de statut, activités terminées, etc.
+                Format enrichi avec détails complets pour chaque action :
+                créations, modifications, emails, notes, changements, activités terminées, etc.
             </p>
         """
 
@@ -2960,9 +3148,9 @@ def generate_daily_timeline_html(daily_timeline):
             formatted_date = f"{day_name} {date_obj.strftime('%d/%m/%Y')}"
 
             html += f"""
-            <div style="margin-top: 25px; margin-bottom: 25px;">
-                <h3 style="background-color: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;">
-                    {formatted_date}
+            <div style="margin-top: 30px; margin-bottom: 30px; padding: 20px; border: 2px solid #007bff; border-radius: 8px; background-color: #ffffff;">
+                <h3 style="background: linear-gradient(to right, #007bff, #0056b3); color: white; padding: 12px; border-radius: 5px; margin-bottom: 20px;">
+                    📅 {formatted_date}
                 </h3>
             """
 
@@ -2972,54 +3160,27 @@ def generate_daily_timeline_html(daily_timeline):
                 <p style="margin-left: 20px; font-style: italic; color: #6c757d;">Aucune activité</p>
                 """
             else:
-                # Section 1: Activités (sans heure car date_done = date only)
+                # Section 1: Activités terminées
                 if activites:
-                    html += """
-                    <h4 style="margin-left: 20px; margin-top: 15px; color: #495057; font-size: 1em;">Activités</h4>
-                    <ul style="list-style-type: none; padding-left: 40px; margin: 5px 0;">
+                    html += f"""
+                    <h3 style="margin-left: 10px; margin-top: 20px; color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 5px;">
+                        📋 ACTIVITÉS TERMINÉES ({len(activites)})
+                    </h3>
                     """
 
-                    for event in activites:
-                        event_name = event['name']
-                        event_url = event['url']
+                    for activity in activites:
+                        html += format_activity_html(activity)
 
-                        html += f"""
-                        <li style="margin-bottom: 8px; padding: 5px 0;">
-                            <span style="color: #007bff;">Activité:</span>
-                            <a href="{event_url}" style="color: #28a745; text-decoration: none;">{event_name}</a>
-                        </li>
-                        """
-
-                    html += '</ul>'
-
-                # Section 2: Autres événements (avec timestamp HH:MM)
+                # Section 2: Autres événements (messages)
                 if autres_evenements:
-                    html += """
-                    <h4 style="margin-left: 20px; margin-top: 15px; color: #495057; font-size: 1em;">Autres événements</h4>
-                    <ul style="list-style-type: none; padding-left: 40px; margin: 5px 0;">
+                    html += f"""
+                    <h3 style="margin-left: 10px; margin-top: 30px; color: #17a2b8; border-bottom: 2px solid #17a2b8; padding-bottom: 5px;">
+                        ⏱️ AUTRES ÉVÉNEMENTS ({len(autres_evenements)})
+                    </h3>
                     """
 
                     for event in autres_evenements:
-                        # Extraire l'heure (HH:MM)
-                        try:
-                            event_datetime = datetime.datetime.fromisoformat(event['datetime'].replace('Z', '+00:00'))
-                            time_str = event_datetime.strftime('%H:%M')
-                        except:
-                            time_str = '00:00'
-
-                        event_type = event['type']
-                        event_name = event['name']
-                        event_url = event['url']
-
-                        html += f"""
-                        <li style="margin-bottom: 8px; padding: 5px 0;">
-                            <span style="font-weight: bold; color: #495057;">{time_str}</span> -
-                            <span style="color: #007bff;">{event_type}:</span>
-                            <a href="{event_url}" style="color: #28a745; text-decoration: none;">{event_name}</a>
-                        </li>
-                        """
-
-                    html += '</ul>'
+                        html += format_message_html(event)
 
             html += '</div>'
 
@@ -3219,20 +3380,21 @@ def generate_activity_report_html_table(report_data):
     except Exception as e:
         raise Exception(f"Error generating HTML table: {str(e)}")
 
-def create_activity_report_task(report_data, project_id, task_column_id):
-    """Create an Odoo task with the activity report"""
+def create_activity_report_task(task_name, html_content, project_id, task_column_id, user_id):
+    """
+    Create an Odoo task with the activity report.
+
+    Args:
+        task_name: Name of the task to create
+        html_content: HTML content for the task description
+        project_id: ID of the project where the task will be created
+        task_column_id: ID of the stage/column where the task will be placed
+        user_id: ID of the user to assign the task to
+
+    Returns:
+        Task ID of the created task
+    """
     try:
-        user_info = report_data.get('user_info', {})
-        user_name = user_info.get('user_name', 'N/A')
-        start_date = user_info.get('start_date', 'N/A')
-        end_date = user_info.get('end_date', 'N/A')
-        
-        # Generate task title
-        task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
-        
-        # Generate HTML table
-        html_description = generate_activity_report_html_table(report_data)
-        
         # Create task using odoo_execute
         result = odoo_execute(
             model='project.task',
@@ -3241,18 +3403,19 @@ def create_activity_report_task(report_data, project_id, task_column_id):
                 'name': task_name,
                 'project_id': project_id,
                 'stage_id': task_column_id,
-                'description': html_description,
-                'user_ids': [(4, user_info.get('user_id'))]  # Assign to the user
+                'description': html_content,
+                'user_ids': [(4, user_id)]  # Assign to the user
             }]
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
             task_id = response.get('result')
+            print(f"[SUCCESS] Created task #{task_id}: {task_name}")
             return task_id
         else:
             raise Exception(f"Task creation failed: {response.get('error', 'Unknown error')}")
-            
+
     except Exception as e:
         raise Exception(f"Error creating activity report task: {str(e)}")
 
