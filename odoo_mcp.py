@@ -2255,12 +2255,31 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
     try:
         all_events = []
 
-        # 1. MAIL.MESSAGE - Capture TOUT ce qui est tracké dans Odoo
-        # Récupère tous les messages créés par l'utilisateur dans la période
+        # 1. Récupérer le partner_id associé au user_id
+        # Nécessaire car mail.message utilise author_id (res.partner) ET create_uid (res.users)
+        # Quand un user crée une notification système, le message a create_uid = user_id mais author_id = partner_id
+        user_result = odoo_search(
+            model='res.users',
+            domain=[['id', '=', user_id]],
+            fields=['partner_id'],
+            limit=1
+        )
+        user_data = json.loads(user_result)
+        if user_data.get('status') != 'success' or not user_data.get('records'):
+            raise Exception(f"Cannot find user {user_id}")
+
+        partner_id = user_data['records'][0]['partner_id'][0]
+
+        # 2. MAIL.MESSAGE - Capture TOUT ce qui est tracké dans Odoo
+        # Utilise un filtre OR pour capturer:
+        # - create_uid: notifications système créées par le user
+        # - author_id: notes/emails écrits par le partner
         messages_result = odoo_search(
             model='mail.message',
             domain=[
-                ['author_id.user_ids', 'in', [user_id]],  # Messages de cet utilisateur
+                '|',
+                ['create_uid', '=', user_id],      # Notifs système créées par le user
+                ['author_id', '=', partner_id],    # Notes/emails écrits par le partner
                 ['date', '>=', start_date],
                 ['date', '<=', end_date]
             ],
