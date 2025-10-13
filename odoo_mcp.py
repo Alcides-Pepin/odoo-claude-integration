@@ -1905,7 +1905,7 @@ def create_report_task(report_data, project_id, task_column_id):
 
 def generate_timeline_pdf(daily_timeline, user_name, start_date, end_date):
     """
-    Generate PDF from daily timeline HTML
+    Generate PDF from daily timeline using fpdf2 (pure Python, no system dependencies)
 
     Args:
         daily_timeline: Dict with daily timeline data
@@ -1916,81 +1916,94 @@ def generate_timeline_pdf(daily_timeline, user_name, start_date, end_date):
     Returns:
         bytes: PDF content as bytes
     """
-    from xhtml2pdf import pisa
-    from io import BytesIO
+    from fpdf import FPDF
 
-    # Générer le HTML de l'historique
-    timeline_html = generate_daily_timeline_html(daily_timeline)
+    # Mapping des jours français
+    french_days = {
+        0: 'Lundi', 1: 'Mardi', 2: 'Mercredi', 3: 'Jeudi',
+        4: 'Vendredi', 5: 'Samedi', 6: 'Dimanche'
+    }
 
-    # Créer un HTML complet avec styles pour le PDF
-    full_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            @page {{
-                size: A4;
-                margin: 2cm;
-            }}
-            body {{
-                font-family: Arial, sans-serif;
-                font-size: 10pt;
-                line-height: 1.4;
-            }}
-            h1 {{
-                color: #2c3e50;
-                border-bottom: 3px solid #3498db;
-                padding-bottom: 10px;
-                font-size: 18pt;
-            }}
-            h2 {{
-                color: #34495e;
-                margin-top: 20px;
-                font-size: 14pt;
-            }}
-            h3 {{
-                color: #7f8c8d;
-                margin-top: 15px;
-                font-size: 12pt;
-            }}
-            a {{
-                color: #3498db;
-                text-decoration: none;
-            }}
-            .separator {{
-                border-top: 2px solid #ecf0f1;
-                margin: 15px 0;
-            }}
-            pre {{
-                white-space: pre-wrap;
-                word-wrap: break-word;
-            }}
-        </style>
-    </head>
-    <body>
-        <h1>Historique exhaustif des actions</h1>
-        <h2>{user_name} - Du {start_date} au {end_date}</h2>
-        {timeline_html}
-    </body>
-    </html>
-    """
+    # Créer le PDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
 
-    # Générer le PDF
-    pdf_buffer = BytesIO()
-    pisa_status = pisa.CreatePDF(
-        src=full_html,
-        dest=pdf_buffer,
-        encoding='utf-8'
-    )
+    # Titre principal
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, 'Historique exhaustif des actions', ln=True, align='C')
+    pdf.ln(5)
 
-    if pisa_status.err:
-        raise Exception(f"Error generating PDF: {pisa_status.err}")
+    # Sous-titre avec période
+    pdf.set_font('Arial', '', 12)
+    pdf.cell(0, 8, f'{user_name} - Du {start_date} au {end_date}', ln=True, align='C')
+    pdf.ln(10)
 
-    pdf_bytes = pdf_buffer.getvalue()
-    pdf_buffer.close()
+    # Trier les dates
+    sorted_dates = sorted(daily_timeline.keys())
 
-    return pdf_bytes
+    for date_str in sorted_dates:
+        day_data = daily_timeline[date_str]
+        activites = day_data.get('activites', [])
+        autres_evenements = day_data.get('autres_evenements', [])
+
+        # Parser la date
+        date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+        day_name = french_days[date_obj.weekday()]
+        formatted_date = f"{day_name} {date_obj.strftime('%d/%m/%Y')}"
+
+        # Titre du jour
+        pdf.set_font('Arial', 'B', 14)
+        pdf.set_fill_color(0, 123, 255)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 10, f'  {formatted_date}', ln=True, fill=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(3)
+
+        # Section Activités
+        if activites:
+            pdf.set_font('Arial', 'B', 11)
+            pdf.cell(0, 8, 'ACTIVITES :', ln=True)
+            pdf.set_font('Arial', '', 10)
+
+            for activity in activites:
+                name = activity.get('name', 'Activite sans nom')
+                # Nettoyer et limiter la longueur
+                name = name.replace('\n', ' ').replace('\r', ' ')[:100]
+                pdf.multi_cell(0, 6, f'  - {name}')
+            pdf.ln(3)
+
+        # Section Autres événements
+        if autres_evenements:
+            pdf.set_font('Arial', 'B', 11)
+            pdf.cell(0, 8, 'AUTRES EVENEMENTS :', ln=True)
+            pdf.set_font('Arial', '', 9)
+
+            for event in autres_evenements:
+                # Extraire l'heure
+                try:
+                    event_datetime = datetime.datetime.fromisoformat(
+                        event['datetime'].replace('Z', '+00:00')
+                    )
+                    time_str = event_datetime.strftime('%H:%M')
+                except:
+                    time_str = '??:??'
+
+                # Type et nom
+                event_type = event.get('type', 'Action').upper()
+                name = event.get('name', 'Action non specifiee')
+                # Nettoyer et limiter
+                name = name.replace('\n', ' ').replace('\r', ' ')[:150]
+
+                pdf.multi_cell(0, 5, f'  {time_str} | {event_type}')
+                pdf.set_x(pdf.l_margin + 5)
+                pdf.multi_cell(0, 5, f'    {name}')
+                pdf.ln(1)
+
+        pdf.ln(5)
+
+    # Retourner les bytes du PDF
+    return pdf.output(dest='S').encode('latin-1')
 
 
 def generate_activity_report_html_table(report_data):
