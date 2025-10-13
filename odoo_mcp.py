@@ -7,6 +7,7 @@ import time
 from typing import Any, List, Dict, Optional
 from mcp.server.fastmcp import FastMCP
 import anthropic
+import pytz
 
 # Get port from environment variable
 # (Railway/Render sets this, defaults to 8001 for local dev)
@@ -2238,6 +2239,43 @@ def get_model_display_name(model: str) -> str:
     return model_map.get(model, model.split('.')[-1].title())
 
 
+def convert_utc_to_paris(utc_datetime_str: str) -> str:
+    """
+    Convert UTC datetime string to Europe/Paris timezone.
+
+    Args:
+        utc_datetime_str: DateTime string in ISO format (may include 'Z' or '+00:00')
+
+    Returns:
+        ISO format datetime string in Europe/Paris timezone
+    """
+    try:
+        # Normaliser le format UTC (remplacer Z par +00:00)
+        if utc_datetime_str.endswith('Z'):
+            utc_datetime_str = utc_datetime_str.replace('Z', '+00:00')
+
+        # Parser le datetime UTC
+        event_datetime_utc = datetime.datetime.fromisoformat(utc_datetime_str)
+
+        # Définir la timezone Paris
+        paris_tz = pytz.timezone('Europe/Paris')
+
+        # Convertir en heure locale
+        if event_datetime_utc.tzinfo is None:
+            # Si pas de timezone, assumer UTC
+            utc_tz = pytz.UTC
+            event_datetime_utc = utc_tz.localize(event_datetime_utc)
+
+        event_datetime_paris = event_datetime_utc.astimezone(paris_tz)
+
+        return event_datetime_paris.isoformat()
+
+    except Exception as e:
+        # En cas d'erreur, retourner la valeur originale
+        print(f"[WARNING] Erreur conversion timezone pour {utc_datetime_str}: {str(e)}")
+        return utc_datetime_str
+
+
 def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
     """
     Collect ALL user actions via mail.message (comprehensive tracking) + mail.activity (completed activities).
@@ -2309,8 +2347,11 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                     # Construire un nom descriptif pour l'action avec le vrai nom
                     action_name = build_action_name(msg, action_type, enriched_name)
 
+                    # Convertir le timestamp UTC en heure locale Paris
+                    datetime_paris = convert_utc_to_paris(msg['date'])
+
                     all_events.append({
-                        'datetime': msg['date'],
+                        'datetime': datetime_paris,  # Timestamp converti en heure locale
                         'type': action_type,
                         'name': action_name,
                         'id': msg['res_id'],  # ID du record concerné (pas du message)
@@ -2351,8 +2392,12 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                     # Format final explicite
                     activity_name = f'Activité "{summary}" sur {model_type} : {res_name}'
 
+                    # Convertir le timestamp UTC en heure locale Paris
+                    # Note: date_done est de type date (pas datetime), mais on le convertit quand même
+                    datetime_paris = convert_utc_to_paris(activity['date_done'])
+
                     all_events.append({
-                        'datetime': activity['date_done'],
+                        'datetime': datetime_paris,  # Timestamp converti en heure locale
                         'type': 'Activité',
                         'name': activity_name,
                         'id': activity.get('res_id', activity['id']),
@@ -2362,6 +2407,11 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
 
         # DEBUG: Log du nombre total d'événements avant tri
         print(f"[DEBUG] Total événements ajoutés à all_events (messages + activités) : {len(all_events)}")
+
+        # DEBUG: Log d'un échantillon de timestamps convertis
+        if all_events:
+            sample_event = all_events[0]
+            print(f"[DEBUG] Exemple de timestamp converti: {sample_event.get('datetime')} pour événement '{sample_event.get('name', 'N/A')[:50]}'")
 
         # Trier tous les événements par datetime
         all_events.sort(key=lambda x: x['datetime'])
