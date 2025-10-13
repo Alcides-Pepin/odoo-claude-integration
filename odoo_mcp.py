@@ -2292,9 +2292,14 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
         messages_list = messages_response.get('records', []) if messages_response.get('status') == 'success' else []
         display_names_map = enrich_messages_with_display_names(messages_list)
 
+        # DEBUG: Log du nombre de messages récupérés
+        print(f"[DEBUG] Messages récupérés de mail.message : {len(messages_list)}")
+
         if messages_response.get('status') == 'success':
+            filtered_count = 0
             for msg in messages_list:
                 if msg.get('date') and msg.get('model') and msg.get('res_id'):
+                    filtered_count += 1
                     # Récupérer le vrai display_name depuis le map
                     enriched_name = display_names_map.get((msg['model'], msg['res_id']), None)
 
@@ -2313,6 +2318,12 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                         'url': f"{ODOO_URL}/web#id={msg['res_id']}&model={msg['model']}&view_type=form",
                         'message_id': msg['id']  # Gardé pour référence
                     })
+                else:
+                    # DEBUG: Log des messages filtrés
+                    print(f"[DEBUG] Message filtré (id={msg.get('id')}): date={msg.get('date')}, model={msg.get('model')}, res_id={msg.get('res_id')}")
+
+            # DEBUG: Log du nombre de messages après filtrage
+            print(f"[DEBUG] Messages après filtrage (date/model/res_id présents) : {filtered_count}")
 
         # 2. MAIL.ACTIVITY - Activités terminées (complément pour ce qui n'est pas dans mail.message)
         activities_result = odoo_search(
@@ -2349,6 +2360,9 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
                         'url': f"{ODOO_URL}/web#id={activity.get('res_id', activity['id'])}&model={activity.get('res_model', 'mail.activity')}&view_type=form"
                     })
 
+        # DEBUG: Log du nombre total d'événements avant tri
+        print(f"[DEBUG] Total événements ajoutés à all_events (messages + activités) : {len(all_events)}")
+
         # Trier tous les événements par datetime
         all_events.sort(key=lambda x: x['datetime'])
 
@@ -2368,16 +2382,36 @@ def collect_daily_timeline_data(start_date: str, end_date: str, user_id: int):
             }
             current_date += datetime.timedelta(days=1)
 
+        # DEBUG: Log des jours générés dans daily_timeline
+        print(f"[DEBUG] Jours générés dans daily_timeline : {list(daily_timeline.keys())}")
+
         # Répartir les événements dans les bonnes listes
+        events_distributed = 0
+        events_outside_range = 0
         for event in all_events:
             event_date = event['datetime'][:10]  # Extract YYYY-MM-DD
             if event_date in daily_timeline:
+                events_distributed += 1
                 if event['type'] == 'Activité':
                     # Les activités vont dans leur propre section (pas d'heure affichée)
                     daily_timeline[event_date]['activites'].append(event)
                 else:
                     # Tout le reste a un timestamp précis
                     daily_timeline[event_date]['autres_evenements'].append(event)
+            else:
+                events_outside_range += 1
+                # DEBUG: Log des événements hors plage
+                print(f"[DEBUG] Événement hors plage ({event_date} not in timeline): {event.get('name', 'N/A')}")
+
+        # DEBUG: Log du nombre d'événements distribués
+        print(f"[DEBUG] Événements distribués dans daily_timeline : {events_distributed}")
+        print(f"[DEBUG] Événements hors plage de dates : {events_outside_range}")
+
+        # DEBUG: Log du contenu de chaque jour
+        for date_key, date_events in daily_timeline.items():
+            total_day_events = len(date_events['activites']) + len(date_events['autres_evenements'])
+            if total_day_events > 0:
+                print(f"[DEBUG] {date_key}: {len(date_events['activites'])} activités + {len(date_events['autres_evenements'])} autres événements = {total_day_events} total")
 
         return daily_timeline
 
