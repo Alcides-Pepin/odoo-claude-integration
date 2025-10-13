@@ -1916,9 +1916,10 @@ def generate_timeline_pdf(daily_timeline, user_name, start_date, end_date):
     Returns:
         bytes: PDF content as bytes
     """
-    from weasyprint import HTML
+    from xhtml2pdf import pisa
+    from io import BytesIO
 
-    # Générer le HTML de l'historique (fonction existante)
+    # Générer le HTML de l'historique
     timeline_html = generate_daily_timeline_html(daily_timeline)
 
     # Créer un HTML complet avec styles pour le PDF
@@ -1928,23 +1929,30 @@ def generate_timeline_pdf(daily_timeline, user_name, start_date, end_date):
     <head>
         <meta charset="utf-8">
         <style>
+            @page {{
+                size: A4;
+                margin: 2cm;
+            }}
             body {{
                 font-family: Arial, sans-serif;
-                margin: 20px;
-                font-size: 11pt;
+                font-size: 10pt;
+                line-height: 1.4;
             }}
             h1 {{
                 color: #2c3e50;
                 border-bottom: 3px solid #3498db;
                 padding-bottom: 10px;
+                font-size: 18pt;
             }}
             h2 {{
                 color: #34495e;
-                margin-top: 30px;
+                margin-top: 20px;
+                font-size: 14pt;
             }}
             h3 {{
                 color: #7f8c8d;
-                margin-top: 20px;
+                margin-top: 15px;
+                font-size: 12pt;
             }}
             a {{
                 color: #3498db;
@@ -1952,7 +1960,11 @@ def generate_timeline_pdf(daily_timeline, user_name, start_date, end_date):
             }}
             .separator {{
                 border-top: 2px solid #ecf0f1;
-                margin: 20px 0;
+                margin: 15px 0;
+            }}
+            pre {{
+                white-space: pre-wrap;
+                word-wrap: break-word;
             }}
         </style>
     </head>
@@ -1965,7 +1977,18 @@ def generate_timeline_pdf(daily_timeline, user_name, start_date, end_date):
     """
 
     # Générer le PDF
-    pdf_bytes = HTML(string=full_html).write_pdf()
+    pdf_buffer = BytesIO()
+    pisa_status = pisa.CreatePDF(
+        src=full_html,
+        dest=pdf_buffer,
+        encoding='utf-8'
+    )
+
+    if pisa_status.err:
+        raise Exception(f"Error generating PDF: {pisa_status.err}")
+
+    pdf_bytes = pdf_buffer.getvalue()
+    pdf_buffer.close()
 
     return pdf_bytes
 

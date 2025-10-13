@@ -29,4 +29,4 @@ google-generativeai==0.8.3
 # Local test server
 flask==3.0.0
 # PDF generation
-weasyprint==62.3
+xhtml2pdf==0.2.16
