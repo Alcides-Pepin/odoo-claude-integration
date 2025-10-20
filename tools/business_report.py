@@ -26,12 +26,18 @@ def init_mcp(mcp_instance):
     mcp.tool()(odoo_business_report)
 
 
-# Import odoo_search from data module (to avoid circular import)
+# Import odoo_search and odoo_execute from data module (to avoid circular import)
 # This will be available after main module initializes everything
 def odoo_search(*args, **kwargs):
     """Wrapper to call odoo_search from tools.data"""
     from tools.data import odoo_search as _odoo_search
     return _odoo_search(*args, **kwargs)
+
+
+def odoo_execute(*args, **kwargs):
+    """Wrapper to call odoo_execute from tools.data"""
+    from tools.data import odoo_execute as _odoo_execute
+    return _odoo_execute(*args, **kwargs)
 
 
 def odoo_business_report(
