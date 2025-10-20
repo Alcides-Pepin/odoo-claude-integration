@@ -1,0 +1,33 @@
+name: Weekly Activity Reports
+
+on:
+  schedule:
+    # Chaque lundi à 8h00 UTC (9h Paris hiver / 10h Paris été)
+    - cron: '0 8 * * 1'
+  workflow_dispatch:  # Permet déclenchement manuel pour tests
+
+jobs:
+  generate-reports:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate weekly activity reports
+        run: |
+          echo "🚀 Starting weekly activity reports generation..."
+
+          response=$(curl -s -w "\n%{http_code}" https://api-server-production-22d0.up.railway.app/generate_weekly_activity_reports)
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" -ne 200 ]; then
+            echo "❌ Error: Endpoint returned $http_code"
+            exit 1
+          fi
+
+          echo "✅ Success: Reports generation started"
+          echo "📊 Check Odoo project 151 for the generated reports"
+          echo ""
+          echo "Note: Reports are generated asynchronously in the background."
+          echo "All 37 reports should appear in Odoo within the next hour."
