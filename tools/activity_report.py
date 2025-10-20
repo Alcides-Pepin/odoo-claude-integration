@@ -40,7 +40,6 @@ def odoo_execute(*args, **kwargs):
     return _odoo_execute(*args, **kwargs)
 
 
-@mcp.tool()
 def odoo_activity_report(
     user_id: int,
     start_date: str,
