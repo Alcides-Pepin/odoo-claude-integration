@@ -31,7 +31,7 @@ tools.activity_report.init_mcp(mcp)
 
 
 # Test automation endpoint for GitHub Actions
-@mcp.get("/test_automation")
+# FastMCP doesn't have @mcp.get() decorator, so we access the underlying Starlette app
 async def test_automation(request):
     """Test endpoint - creates a simple task every 5 min for GitHub Actions testing"""
     try:
@@ -68,6 +68,10 @@ async def test_automation(request):
             "status": "error",
             "message": str(e)
         }, status_code=500)
+
+# Register the route on the underlying Starlette app
+from starlette.routing import Route
+mcp.app.routes.append(Route("/test_automation", test_automation, methods=["GET"]))
 
 
 if __name__ == "__main__":
