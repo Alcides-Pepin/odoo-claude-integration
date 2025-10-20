@@ -1,0 +1,25 @@
+name: Test Automation
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Toutes les 5 minutes
+  workflow_dispatch:  # Permet de lancer manuellement depuis GitHub
+
+jobs:
+  test-endpoint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call test automation endpoint
+        run: |
+          response=$(curl -s -w "\n%{http_code}" https://ton-app.up.railway.app/test_automation)
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+          
+          if [ "$http_code" -ne 200 ]; then
+            echo "❌ Error: Endpoint returned $http_code"
+            exit 1
+          fi
+          
+          echo "✅ Success: Task created"
