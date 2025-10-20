@@ -10,7 +10,7 @@ jobs:
     steps:
       - name: Call test automation endpoint
         run: |
-          response=$(curl -s -w "\n%{http_code}" https://api-server-production-22d0.up.railway.app/)
+          response=$(curl -s -w "\n%{http_code}" https://api-server-production-22d0.up.railway.app/test_automation)
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
           
