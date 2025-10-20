@@ -30,7 +30,8 @@ async def test_automation():
             'name': f'[TEST AUTO] {now}',
             'project_id': 151,
             'stage_id': 756,
-            'description': f'<p>Tâche de test générée automatiquement à {now}</p>'
+            'description': f'<p>Tâche de test générée automatiquement à {now}</p>',
+            'user_ids': [(4, 7)]  # Assigner à user_id 7
         }
 
         result = odoo_execute(
