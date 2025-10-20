@@ -57,6 +57,37 @@ async def test_automation():
             "message": str(e)
         }, status_code=500)
 
+@app.get("/test_activity_report")
+async def test_activity_report():
+    """Test activity report generation for user 7"""
+    try:
+        # Calculer la semaine précédente
+        today = datetime.date.today()
+        last_monday = today - datetime.timedelta(days=today.weekday() + 7)
+        last_sunday = last_monday + datetime.timedelta(days=6)
+        start_date = last_monday.isoformat()
+        end_date = last_sunday.isoformat()
+
+        # Importer la fonction activity_report
+        from tools.activity_report import odoo_activity_report
+
+        # Générer le rapport
+        result = odoo_activity_report(
+            user_id=7,
+            start_date=start_date,
+            end_date=end_date,
+            project_id=151,
+            task_column_id=726
+        )
+
+        return json.loads(result)
+
+    except Exception as e:
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("API_PORT", 8002))
