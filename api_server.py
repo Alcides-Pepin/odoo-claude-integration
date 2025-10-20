@@ -126,7 +126,48 @@ def generate_all_activity_reports(start_date: str, end_date: str):
             failed += 1
             print(f"[ERROR] Exception for user_id={config['user_id']}: {str(e)}")
 
-    print(f"[INFO] Batch complete: {successful} successful, {failed} failed out of {len(ACTIVITY_REPORTS)} total")
+    print(f"[INFO] Activity reports batch complete: {successful} successful, {failed} failed out of {len(ACTIVITY_REPORTS)} total")
+
+def generate_all_business_reports(start_date: str, end_date: str):
+    """
+    Background task: Generate business reports for all teams in automation_config.
+    This runs asynchronously to avoid HTTP timeouts.
+    """
+    from automation_config import BUSINESS_REPORTS
+    from tools.business_report import odoo_business_report
+
+    print(f"[INFO] Starting generation of {len(BUSINESS_REPORTS)} business reports...")
+    print(f"[INFO] Period: {start_date} to {end_date}")
+
+    successful = 0
+    failed = 0
+
+    for idx, config in enumerate(BUSINESS_REPORTS, 1):
+        try:
+            user_ids = config["user_ids"]
+            print(f"[INFO] Generating business report {idx}/{len(BUSINESS_REPORTS)} for user_ids={user_ids}...")
+
+            result = odoo_business_report(
+                user_ids=user_ids,
+                start_date=start_date,
+                end_date=end_date,
+                project_id=config["project_id"],
+                task_column_id=config["task_column_id"]
+            )
+
+            result_data = json.loads(result)
+            if result_data.get("status") == "success":
+                successful += 1
+                print(f"[SUCCESS] Business report generated for user_ids={user_ids}, task_id={result_data.get('task_id')}")
+            else:
+                failed += 1
+                print(f"[ERROR] Failed for user_ids={user_ids}: {result_data.get('message')}")
+
+        except Exception as e:
+            failed += 1
+            print(f"[ERROR] Exception for user_ids={user_ids}: {str(e)}")
+
+    print(f"[INFO] Business reports batch complete: {successful} successful, {failed} failed out of {len(BUSINESS_REPORTS)} total")
 
 @app.get("/generate_weekly_activity_reports")
 async def generate_weekly_activity_reports(background_tasks: BackgroundTasks):
@@ -153,6 +194,39 @@ async def generate_weekly_activity_reports(background_tasks: BackgroundTasks):
             "period": f"{start_date} to {end_date}",
             "total_users": len(ACTIVITY_REPORTS),
             "note": "Reports are being generated asynchronously. Check Odoo project 151 for results."
+        }
+
+    except Exception as e:
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+@app.get("/auto_business_reports")
+async def auto_business_reports(background_tasks: BackgroundTasks):
+    """
+    Generate weekly business reports for all teams defined in automation_config.
+    Reports are generated asynchronously in the background to avoid timeouts.
+    """
+    try:
+        from automation_config import BUSINESS_REPORTS
+
+        # Calculate last week (Monday to Sunday)
+        today = datetime.date.today()
+        last_monday = today - datetime.timedelta(days=today.weekday() + 7)
+        last_sunday = last_monday + datetime.timedelta(days=6)
+        start_date = last_monday.isoformat()
+        end_date = last_sunday.isoformat()
+
+        # Launch background task
+        background_tasks.add_task(generate_all_business_reports, start_date, end_date)
+
+        return {
+            "status": "success",
+            "message": "Business reports generation started in background",
+            "period": f"{start_date} to {end_date}",
+            "total_reports": len(BUSINESS_REPORTS),
+            "note": "Reports are being generated asynchronously. Check respective Odoo projects for results."
         }
 
     except Exception as e:
