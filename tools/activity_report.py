@@ -8,7 +8,7 @@ import json
 import datetime
 import pytz
 from typing import List, Dict
-from config import ODOO_DB, ODOO_PASSWORD, SUBTYPE_MAPPING
+from config import ODOO_DB, ODOO_PASSWORD, ODOO_URL, SUBTYPE_MAPPING
 from services.odoo_client import get_odoo_connection
 from services.formatters import strip_html_tags, extract_text_from_html
 from services.ai import generate_claude_summary

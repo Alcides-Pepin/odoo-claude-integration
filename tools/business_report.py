@@ -7,7 +7,7 @@ Contains the business_report MCP tool and all its helper functions.
 import json
 import datetime
 from typing import List, Dict
-from config import ODOO_DB, ODOO_PASSWORD, STAGE_IDS, CATEGORY_IDS
+from config import ODOO_DB, ODOO_PASSWORD, ODOO_URL, STAGE_IDS, CATEGORY_IDS
 from services.odoo_client import get_odoo_connection
 from services.formatters import format_currency, strip_html_tags
 from services.ai import generate_top5_ai_summary
