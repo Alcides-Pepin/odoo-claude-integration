@@ -13,6 +13,7 @@ import tools.discovery
 import tools.data
 import tools.business_report
 import tools.activity_report
+import tools.test_pdf
 
 
 # Initialize FastMCP server with host and port
@@ -23,6 +24,7 @@ tools.discovery.init_mcp(mcp)
 tools.data.init_mcp(mcp)
 tools.business_report.init_mcp(mcp)
 tools.activity_report.init_mcp(mcp)
+tools.test_pdf.init_mcp(mcp)
 
 
 if __name__ == "__main__":
