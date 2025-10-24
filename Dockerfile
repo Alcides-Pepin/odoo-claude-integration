@@ -10,13 +10,12 @@ RUN apt-get update && apt-get install -y \
     libcairo2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    # GObject (the missing library causing errors)
-    libgobject-2.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    # GLib (contains GObject - the missing library)
+    libglib2.0-0 \
     libgirepository-1.0-1 \
     # Additional required libraries
     libffi-dev \
-    libglib2.0-0 \
     shared-mime-info \
     # Font support
     fonts-liberation \
