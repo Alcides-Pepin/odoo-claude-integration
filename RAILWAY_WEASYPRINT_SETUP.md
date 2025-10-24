@@ -18,97 +18,71 @@ Railway supporte **2 méthodes** pour ajouter les dépendances système nécessa
 
 ---
 
-## 🚀 Méthode 1 : Variable d'environnement (LA PLUS SIMPLE)
+## ⚠️ IMPORTANT : Méthode 1 ne fonctionne PAS
 
-### Étape 1 : Aller dans les paramètres du service sur Railway
+**La variable `NIXPACKS_PKGS` installe les packages Nix au BUILD mais ils ne sont pas disponibles au RUNTIME.**
 
-1. Va sur [railway.app](https://railway.app)
-2. Sélectionne ton projet
-3. Clique sur ton service (ex: `web` ou `serveur_mcp_claude`)
-4. Clique sur l'onglet **"Variables"**
-
-### Étape 2 : Ajouter la variable d'environnement
-
-Clique sur **"New Variable"** et ajoute :
-
-**Nom de la variable :**
-```
-NIXPACKS_PKGS
-```
-
-**Valeur :**
-```
-cairo pango gobject-introspection glib libffi pkg-config gdk-pixbuf
-```
-
-### Étape 3 : Redéployer
-
-1. Railway va automatiquement redéployer l'application
-2. Ou force un redéploiement en cliquant sur **"Deploy"** → **"Redeploy"**
-
-### Étape 4 : Vérifier les logs
-
-Dans l'onglet **"Deployments"**, vérifie les logs de build. Tu devrais voir :
-```
-====== Installing Nix packages ======
-cairo
-pango
-gobject-introspection
-glib
-libffi
-pkg-config
-gdk-pixbuf
-```
+Utilise directement la **Méthode 2** (nixpacks.toml avec aptPkgs).
 
 ---
 
-## 🔧 Méthode 2 : Fichier nixpacks.toml (PLUS PROPRE)
+## 🔧 Méthode correcte : Fichier nixpacks.toml avec aptPkgs
 
 ### Étape 1 : Créer le fichier nixpacks.toml
 
 À la racine de ton projet, crée un fichier `nixpacks.toml` :
 
 ```toml
-# nixpacks.toml - Configuration Railway pour WeasyPrint
+# nixpacks.toml - Railway build configuration for WeasyPrint
 
 [phases.setup]
-# Note: "..." est important - il étend les packages au lieu de les remplacer
-nixPkgs = [
-    "...",
-    "cairo",
-    "pango",
-    "gobject-introspection",
-    "glib",
-    "libffi",
-    "pkg-config",
-    "gdk-pixbuf",
-    "fontconfig",
-    "freetype"
+# IMPORTANT: Use aptPkgs (not nixPkgs) so libraries are available at runtime
+aptPkgs = [
+    "libcairo2",
+    "libpango-1.0-0",
+    "libpangocairo-1.0-0",
+    "libgdk-pixbuf2.0-0",
+    "libffi-dev",
+    "shared-mime-info"
 ]
 ```
 
-**Explication des packages :**
-- `cairo` : Moteur de rendu graphique 2D
-- `pango` : Moteur de layout de texte
-- `gobject-introspection` : Introspection pour bibliothèques GObject
-- `glib` : Bibliothèque utilitaire C de base
-- `libffi` : Foreign Function Interface
-- `pkg-config` : Outil pour interroger les bibliothèques installées
-- `gdk-pixbuf` : Manipulation d'images
-- `fontconfig` : Configuration des polices
-- `freetype` : Moteur de rendu de polices
+**Pourquoi aptPkgs et pas nixPkgs ?**
+- ❌ `nixPkgs` : Installés au BUILD dans l'environnement Nix, mais **pas disponibles au RUNTIME**
+- ✅ `aptPkgs` : Installés via APT dans l'image Ubuntu finale, **disponibles au RUNTIME**
 
-### Étape 2 : Commit et push
+**Explication des packages :**
+- `libcairo2` : Bibliothèque Cairo pour le rendu graphique 2D
+- `libpango-1.0-0` : Bibliothèque Pango pour le layout de texte
+- `libpangocairo-1.0-0` : Intégration Pango + Cairo
+- `libgdk-pixbuf2.0-0` : Manipulation d'images
+- `libffi-dev` : Foreign Function Interface
+- `shared-mime-info` : Base de données MIME types
+
+### Étape 2 : Ajouter railway.json pour forcer Nixpacks
+
+Crée aussi `railway.json` pour forcer l'utilisation de Nixpacks :
+
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  }
+}
+```
+
+### Étape 3 : Commit et push
 
 ```bash
-git add nixpacks.toml
-git commit -m "feat: Add nixpacks config for WeasyPrint system dependencies"
+git add nixpacks.toml railway.json
+git commit -m "feat: Add nixpacks config with aptPkgs for WeasyPrint"
 git push origin feature/pdf-activity-report
 ```
 
-### Étape 3 : Railway détectera automatiquement le fichier
+### Étape 4 : Railway détectera automatiquement les fichiers
 
-Railway lit automatiquement `nixpacks.toml` s'il existe à la racine du projet.
+Railway lit automatiquement `railway.json` et `nixpacks.toml` à la racine du projet.
 
 ---
 
