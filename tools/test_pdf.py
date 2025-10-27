@@ -54,7 +54,7 @@ def generate_pdf_from_html(html_content: str) -> bytes:
 
 def attach_pdf_to_task(task_id: int, pdf_bytes: bytes, filename: str) -> int:
     """
-    Attach a PDF file to an Odoo task via ir.attachment.
+    Attach a PDF file to an Odoo task and post it in the Chatter.
 
     Args:
         task_id: ID of the task to attach the PDF to
@@ -68,17 +68,16 @@ def attach_pdf_to_task(task_id: int, pdf_bytes: bytes, filename: str) -> int:
         # Encode PDF to base64
         pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
-        # Create attachment data
+        # STEP 1: Create the attachment
         attachment_data = {
-            'res_model': 'project.task',
-            'res_id': task_id,
             'name': filename,
             'type': 'binary',
             'datas': pdf_base64,
+            'res_model': 'project.task',
+            'res_id': task_id,
             'mimetype': 'application/pdf'
         }
 
-        # Create the attachment in Odoo
         result = odoo_execute(
             model='ir.attachment',
             method='create',
@@ -86,12 +85,35 @@ def attach_pdf_to_task(task_id: int, pdf_bytes: bytes, filename: str) -> int:
         )
 
         response = json.loads(result)
-        if response.get('status') == 'success':
-            attachment_id = response.get('result')
-            print(f"[SUCCESS] Created attachment #{attachment_id}: {filename}")
-            return attachment_id
-        else:
+        if response.get('status') != 'success':
             raise Exception(f"Attachment creation failed: {response.get('error', 'Unknown error')}")
+
+        attachment_id = response.get('result')
+        print(f"[SUCCESS] Created attachment #{attachment_id}: {filename}")
+
+        # STEP 2: Post a message in the Chatter with the attachment
+        message_data = {
+            'body': '<p>📎 Rapport PDF joint</p>',
+            'model': 'project.task',
+            'res_id': task_id,
+            'message_type': 'comment',
+            'attachment_ids': [(6, 0, [attachment_id])]  # Link the attachment to the message
+        }
+
+        message_result = odoo_execute(
+            model='mail.message',
+            method='create',
+            args=[message_data]
+        )
+
+        message_response = json.loads(message_result)
+        if message_response.get('status') == 'success':
+            message_id = message_response.get('result')
+            print(f"[SUCCESS] Posted message #{message_id} in Chatter with PDF attachment")
+        else:
+            print(f"[WARNING] Attachment created but failed to post in Chatter: {message_response.get('error')}")
+
+        return attachment_id
 
     except Exception as e:
         raise Exception(f"Error attaching PDF to task: {str(e)}")
