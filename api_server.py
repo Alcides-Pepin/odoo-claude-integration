@@ -88,26 +88,6 @@ async def test_activity_report():
             "message": str(e)
         }, status_code=500)
 
-@app.get("/test_pdf_attachment")
-async def test_pdf_attachment():
-    """Test PDF generation and attachment to Odoo task"""
-    try:
-        # Import the test tool
-        from tools.test_pdf import test_pdf_attachment as _test_pdf_attachment
-
-        # Use default test project and column
-        result = _test_pdf_attachment(
-            project_id=151,
-            task_column_id=726
-        )
-
-        return json.loads(result)
-
-    except Exception as e:
-        return JSONResponse({
-            "status": "error",
-            "message": str(e)
-        }, status_code=500)
 
 def generate_all_activity_reports(start_date: str, end_date: str):
     """

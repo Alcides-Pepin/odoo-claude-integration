@@ -7,6 +7,7 @@ Contains the activity_report MCP tool and all its helper functions.
 import json
 import datetime
 import pytz
+import base64
 from typing import List, Dict
 from config import ODOO_DB, ODOO_PASSWORD, ODOO_URL, SUBTYPE_MAPPING
 from services.odoo_client import get_odoo_connection
@@ -38,6 +39,95 @@ def odoo_execute(*args, **kwargs):
     """Wrapper to call odoo_execute from tools.data"""
     from tools.data import odoo_execute as _odoo_execute
     return _odoo_execute(*args, **kwargs)
+
+
+def generate_pdf_from_html(html_content: str) -> bytes:
+    """
+    Convert HTML to PDF using WeasyPrint.
+
+    Args:
+        html_content: HTML string to convert
+
+    Returns:
+        bytes: PDF content as bytes
+    """
+    try:
+        from weasyprint import HTML
+
+        # Generate PDF in memory (no temporary file needed)
+        pdf_bytes = HTML(string=html_content).write_pdf()
+
+        return pdf_bytes
+
+    except Exception as e:
+        raise Exception(f"Error generating PDF from HTML: {str(e)}")
+
+
+def attach_pdf_to_task_chatter(task_id: int, pdf_bytes: bytes, filename: str) -> int:
+    """
+    Attach a PDF file to an Odoo task and post it in the Chatter.
+
+    Args:
+        task_id: ID of the task to attach the PDF to
+        pdf_bytes: PDF content as bytes
+        filename: Name for the attachment file
+
+    Returns:
+        int: ID of the created attachment
+    """
+    try:
+        # Encode PDF to base64
+        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+        # STEP 1: Create the attachment
+        attachment_data = {
+            'name': filename,
+            'type': 'binary',
+            'datas': pdf_base64,
+            'res_model': 'project.task',
+            'res_id': task_id,
+            'mimetype': 'application/pdf'
+        }
+
+        result = odoo_execute(
+            model='ir.attachment',
+            method='create',
+            args=[attachment_data]
+        )
+
+        response = json.loads(result)
+        if response.get('status') != 'success':
+            raise Exception(f"Attachment creation failed: {response.get('error', 'Unknown error')}")
+
+        attachment_id = response.get('result')
+        print(f"[SUCCESS] Created attachment #{attachment_id}: {filename}")
+
+        # STEP 2: Post a message in the Chatter with the attachment
+        message_data = {
+            'body': '<p>📎 Timeline exhaustive jointe en PDF</p>',
+            'model': 'project.task',
+            'res_id': task_id,
+            'message_type': 'comment',
+            'attachment_ids': [(6, 0, [attachment_id])]  # Link the attachment to the message
+        }
+
+        message_result = odoo_execute(
+            model='mail.message',
+            method='create',
+            args=[message_data]
+        )
+
+        message_response = json.loads(message_result)
+        if message_response.get('status') == 'success':
+            message_id = message_response.get('result')
+            print(f"[SUCCESS] Posted message #{message_id} in Chatter with PDF attachment")
+        else:
+            print(f"[WARNING] Attachment created but failed to post in Chatter: {message_response.get('error')}")
+
+        return attachment_id
+
+    except Exception as e:
+        raise Exception(f"Error attaching PDF to task: {str(e)}")
 
 
 def odoo_activity_report(
@@ -118,30 +208,40 @@ def odoo_activity_report(
         print(f"[INFO] Collecting daily timeline data...")
         timeline_data = collect_daily_timeline_data(start_date, end_date, user_id)
 
-        # PARTIE 3: Générer le tableau récapitulatif HTML
+        # PARTIE 3: Générer le tableau récapitulatif HTML (sans timeline)
         print(f"[INFO] Generating summary table HTML...")
         summary_table_html = generate_activity_report_html_table(report_data)
 
-        # PARTIE 4: Générer la timeline exhaustive HTML
-        print(f"[INFO] Generating detailed timeline HTML...")
-        timeline_html = generate_daily_timeline_html(timeline_data)
-
-        # PARTIE 5: Combiner les deux parties avec un séparateur visuel
-        combined_html = summary_table_html + "\n\n<hr style='margin: 40px 0; border: 2px solid #dee2e6;'/>\n\n" + timeline_html
-
-        # Create task with the combined HTML report
+        # PARTIE 4: Créer la tâche avec uniquement le tableau récapitulatif
         task_name = f"Rapport d'activité - {user_name} ({start_date} au {end_date})"
-        print(f"[INFO] Creating report task...")
+        print(f"[INFO] Creating report task with summary table...")
         task_id = create_activity_report_task(
             task_name=task_name,
-            html_content=combined_html,
+            html_content=summary_table_html,
             project_id=project_id,
             task_column_id=task_column_id,
             user_id=user_id
         )
 
+        # PARTIE 5: Générer la timeline exhaustive HTML pour PDF
+        print(f"[INFO] Generating detailed timeline HTML for PDF...")
+        timeline_html = generate_daily_timeline_html(timeline_data)
+
+        # PARTIE 6: Générer le PDF de la timeline
+        print(f"[INFO] Converting timeline HTML to PDF...")
+        pdf_bytes = generate_pdf_from_html(timeline_html)
+        pdf_size = len(pdf_bytes)
+        print(f"[SUCCESS] PDF generated successfully ({pdf_size} bytes)")
+
+        # PARTIE 7: Attacher le PDF à la tâche dans le Chatter
+        print(f"[INFO] Attaching PDF to task Chatter...")
+        pdf_filename = f"timeline_{user_name.replace(' ', '_')}_{start_date}_{end_date}.pdf"
+        attachment_id = attach_pdf_to_task_chatter(task_id, pdf_bytes, pdf_filename)
+
         # Count total events for summary
         total_events = sum(len(events) for events in timeline_data.values())
+
+        task_url = f"{ODOO_URL}/web#id={task_id}&model=project.task&view_type=form"
 
         return json.dumps({
             "status": "success",
@@ -149,8 +249,14 @@ def odoo_activity_report(
             "period": f"{start_date} to {end_date}",
             "task_id": task_id,
             "task_name": task_name,
+            "task_url": task_url,
             "total_days": len(timeline_data),
             "total_events": total_events,
+            "pdf_attachment": {
+                "attachment_id": attachment_id,
+                "filename": pdf_filename,
+                "size_bytes": pdf_size
+            },
             "timestamp": datetime.datetime.now().isoformat()
         }, indent=2)
 
@@ -1704,11 +1810,8 @@ def generate_activity_report_html_table(report_data):
         </div>
         """
 
-        # Ajouter la timeline chronologique jour par jour
-        daily_timeline = activities_data.get('daily_timeline', {})
-        if daily_timeline:
-            timeline_html = generate_daily_timeline_html(daily_timeline)
-            html += timeline_html
+        # NOTE: La timeline exhaustive n'est plus incluse ici
+        # Elle sera générée en PDF séparé et attachée à la tâche
 
         return html
 
