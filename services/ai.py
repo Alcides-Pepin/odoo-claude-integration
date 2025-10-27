@@ -209,7 +209,24 @@ STATISTIQUES GÉNÉRALES:
         """
 
         # Create narrative-focused prompt with user name
-        prompt = f"""Écris un résumé en 2-3 paragraphes des activités de {user_name} cette semaine. Raconte ce qui s'est passé comme une histoire : sur quels projets {user_name} a travaillé, pourquoi, et quel impact business. Évite les listes à puces, écris en prose naturelle en parlant de {user_name} à la troisième personne.
+        prompt = f"""Rédige un compte-rendu narratif des activités de {user_name} cette semaine en adoptant un ton journalistique neutre.
+
+STYLE : Narration factuelle
+- Raconte COMMENT les choses se sont passées, pas SI c'est bien ou mal
+- Utilise des connecteurs temporels et logiques pour fluidifier le récit ("Cette semaine", "Par la suite", "En parallèle")
+- Contextualise les actions (projets, clients, objectifs) de manière neutre
+- Verbes d'action descriptifs sans adjectifs évaluatifs
+
+INTERDIT :
+- Adjectifs de jugement : ~~clé~~, ~~important~~, ~~significatif~~, ~~très occupé~~
+- Interprétations : ~~"suggère que"~~, ~~"montre son engagement"~~, ~~"a dû faire face"~~
+- Évaluations d'impact : ~~"contribue à la performance"~~, ~~"renforcera la compétitivité"~~
+- Justifications : Ne défends pas les retards, constate-les simplement
+
+FORMAT : 2-3 paragraphes en prose naturelle
+
+EXEMPLE DE TON ATTENDU :
+"Cette semaine, {user_name} a terminé 8 tâches sur 3 projets. Il a principalement travaillé sur la refonte de la base de données client, où il a restructuré les tables et implémenté un système d'export automatique. En parallèle, il a participé à deux réunions de suivi avec le client X et mis à jour cinq fiches CRM suite à ces échanges. 4 activités sont actuellement en retard."
 
 Données :{test_data_summary}"""
 
