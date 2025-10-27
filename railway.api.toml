@@ -1,0 +1,11 @@
+# Railway configuration for HTTP API service
+# This service uses Dockerfile and starts api_server.py
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python api_server.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

@@ -1,0 +1,11 @@
+# Railway configuration for MCP service
+# This service uses Dockerfile and starts odoo_mcp.py
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python odoo_mcp.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
