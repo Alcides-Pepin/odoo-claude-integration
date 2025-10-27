@@ -3,7 +3,7 @@
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "Dockerfile.mcp"
 
 [deploy]
 startCommand = "python odoo_mcp.py"
