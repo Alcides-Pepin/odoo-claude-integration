@@ -840,6 +840,174 @@ def get_new_clients_details_individual(start_date: str, end_date: str, user_ids:
     except Exception as e:
         raise Exception(f"Error getting new clients details: {str(e)}")
 
+
+def get_invoiced_clients_details_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get detailed list of clients who generated invoiced revenue for each user individually"""
+    try:
+        individual_details = {}
+
+        for user_id in user_ids:
+            # Get invoices in period for this specific user
+            result = odoo_search(
+                model='account.move',
+                domain=[
+                    ['invoice_date', '>=', start_date],
+                    ['invoice_date', '<=', end_date],
+                    ['invoice_user_id', '=', user_id],
+                    ['move_type', '=', 'out_invoice'],
+                    ['state', '=', 'posted']
+                ],
+                fields=['partner_id'],
+                limit=10000
+            )
+
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                # Get unique partner IDs from invoices for this user
+                partner_ids = list(set([
+                    invoice['partner_id'][0]
+                    for invoice in response.get('records', [])
+                    if invoice.get('partner_id')
+                ]))
+
+                invoiced_clients = []
+                for partner_id in partner_ids:
+                    # Get client details
+                    client_details = odoo_search(
+                        model='res.partner',
+                        domain=[['id', '=', partner_id]],
+                        fields=['id', 'name'],
+                        limit=1
+                    )
+
+                    client_response = json.loads(client_details)
+                    if client_response.get('status') == 'success' and client_response.get('records'):
+                        client = client_response['records'][0]
+                        invoiced_clients.append({
+                            'id': client['id'],
+                            'name': client.get('name', 'Client sans nom')
+                        })
+
+                individual_details[user_id] = invoiced_clients
+            else:
+                individual_details[user_id] = []
+
+        return individual_details
+
+    except Exception as e:
+        raise Exception(f"Error getting invoiced clients details: {str(e)}")
+
+
+def get_ordering_clients_details_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get detailed list of clients who ordered for each user individually"""
+    try:
+        individual_details = {}
+
+        for user_id in user_ids:
+            # Get orders in period for this specific user
+            result = odoo_search(
+                model='sale.order',
+                domain=[
+                    ['date_order', '>=', start_date],
+                    ['date_order', '<=', end_date],
+                    ['user_id', '=', user_id]
+                ],
+                fields=['partner_id'],
+                limit=10000
+            )
+
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                # Get unique partner IDs from orders for this user
+                partner_ids = list(set([
+                    order['partner_id'][0]
+                    for order in response.get('records', [])
+                    if order.get('partner_id')
+                ]))
+
+                ordering_clients = []
+                for partner_id in partner_ids:
+                    # Get client details
+                    client_details = odoo_search(
+                        model='res.partner',
+                        domain=[['id', '=', partner_id]],
+                        fields=['id', 'name'],
+                        limit=1
+                    )
+
+                    client_response = json.loads(client_details)
+                    if client_response.get('status') == 'success' and client_response.get('records'):
+                        client = client_response['records'][0]
+                        ordering_clients.append({
+                            'id': client['id'],
+                            'name': client.get('name', 'Client sans nom')
+                        })
+
+                individual_details[user_id] = ordering_clients
+            else:
+                individual_details[user_id] = []
+
+        return individual_details
+
+    except Exception as e:
+        raise Exception(f"Error getting ordering clients details: {str(e)}")
+
+
+def get_delivered_clients_details_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """Get detailed list of clients who received deliveries for each user individually"""
+    try:
+        individual_details = {}
+
+        for user_id in user_ids:
+            # Get deliveries in period for this specific user
+            result = odoo_search(
+                model='stock.picking',
+                domain=[
+                    ['date_done', '>=', start_date],
+                    ['date_done', '<=', end_date],
+                    ['user_id', '=', user_id]
+                ],
+                fields=['partner_id'],
+                limit=10000
+            )
+
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                # Get unique partner IDs from deliveries for this user
+                partner_ids = list(set([
+                    picking['partner_id'][0]
+                    for picking in response.get('records', [])
+                    if picking.get('partner_id')
+                ]))
+
+                delivered_clients = []
+                for partner_id in partner_ids:
+                    # Get client details
+                    client_details = odoo_search(
+                        model='res.partner',
+                        domain=[['id', '=', partner_id]],
+                        fields=['id', 'name'],
+                        limit=1
+                    )
+
+                    client_response = json.loads(client_details)
+                    if client_response.get('status') == 'success' and client_response.get('records'):
+                        client = client_response['records'][0]
+                        delivered_clients.append({
+                            'id': client['id'],
+                            'name': client.get('name', 'Client sans nom')
+                        })
+
+                individual_details[user_id] = delivered_clients
+            else:
+                individual_details[user_id] = []
+
+        return individual_details
+
+    except Exception as e:
+        raise Exception(f"Error getting delivered clients details: {str(e)}")
+
+
 def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
     """
     Collect all business metrics for the report
@@ -867,9 +1035,12 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
         # Détails INDIVIDUELS (listes de clients)
         individual_details = {
             "recommandations_details_individual": get_recommendations_details_individual(start_date, end_date, user_ids),
-            "nouveaux_clients_details_individual": get_new_clients_details_individual(start_date, end_date, user_ids)
+            "nouveaux_clients_details_individual": get_new_clients_details_individual(start_date, end_date, user_ids),
+            "invoiced_clients_details_individual": get_invoiced_clients_details_individual(start_date, end_date, user_ids),
+            "ordering_clients_details_individual": get_ordering_clients_details_individual(start_date, end_date, user_ids),
+            "delivered_clients_details_individual": get_delivered_clients_details_individual(start_date, end_date, user_ids)
         }
-        
+
         # Combiner tout
         return {
             **aggregated_metrics,
@@ -1082,7 +1253,9 @@ def generate_report_html_table(report_data):
                 <tbody>
         """
 
-        # Section CA - Nouveau format avec individuels + totaux
+        # Section CA - Nouveau format avec individuels + totaux + détails clients facturés
+        invoiced_clients_details = metrics_data.get('invoiced_clients_details_individual', {})
+
         for key, value in revenue_data.items():
             if key.startswith('ca_facture_') and 'commercial_' in key:
                 # Extraire société et user_id
@@ -1090,25 +1263,47 @@ def generate_report_html_table(report_data):
                 company_name = parts[2].title()  # ca_facture_[company]_commercial_[id]
                 user_id = int(parts[-1])
                 user_name = user_name_map.get(user_id, f"User {user_id}")
-                
+
                 label = (f"Chiffre d'affaires facturé HT {company_name} "
                         f"- {user_name}")
                 style = ""
-                
+
+                html += f"""
+                    <tr style="{style}">
+                        <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{format_currency(value)}</td>
+                    </tr>
+                """
+
+                # Ajouter la ligne de détails des clients ayant généré du CA
+                if user_id in invoiced_clients_details:
+                    clients = invoiced_clients_details[user_id]
+                    if clients:
+                        detail_label = f"Clients ayant généré du chiffre d'affaires facturé - {user_name}"
+                        clients_list = "<br>".join([
+                            f"• <a href='{ODOO_URL}/web#id={client['id']}&model=res.partner&view_type=form'>{client['name']}</a>"
+                            for client in clients
+                        ])
+
+                        html += f"""
+                                <tr>
+                                    <td style="border: 1px solid #dee2e6; padding: 10px;">{detail_label}</td>
+                                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{clients_list}</td>
+                                </tr>
+                        """
+
             elif key.startswith('ca_facture_') and key.endswith('_total'):
                 # Total par société
                 company_name = key.replace('ca_facture_', '').replace('_total', '').title()
                 label = f"Chiffre d'affaires Total facturé HT {company_name}"
                 style = "background-color: #e9ecef; font-weight: bold;"
-            else:
-                continue
 
-            html += f"""
+                html += f"""
                     <tr style="{style}">
                         <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
                         <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{format_currency(value)}</td>
                     </tr>
-            """
+                """
 
         # Section métriques AGRÉGÉES (celles qui restent combinées)
         aggregated_labels = {
@@ -1116,6 +1311,8 @@ def generate_report_html_table(report_data):
             "rdv_realises": "Rendez-vous réalisés",
             "livraisons": "Livraisons"
         }
+
+        delivered_clients_details = metrics_data.get('delivered_clients_details_individual', {})
 
         for key, label in aggregated_labels.items():
             value = metrics_data.get(key, 0)
@@ -1126,10 +1323,28 @@ def generate_report_html_table(report_data):
                     </tr>
             """
 
+            # Ajouter les détails des clients livrés après la ligne Livraisons
+            if key == "livraisons" and delivered_clients_details:
+                for user_id, clients in delivered_clients_details.items():
+                    if clients:
+                        user_name = user_name_map.get(user_id, f"User {user_id}")
+                        detail_label = f"Clients ayant été livrés - {user_name}"
+                        clients_list = "<br>".join([
+                            f"• <a href='{ODOO_URL}/web#id={client['id']}&model=res.partner&view_type=form'>{client['name']}</a>"
+                            for client in clients
+                        ])
+
+                        html += f"""
+                                <tr>
+                                    <td style="border: 1px solid #dee2e6; padding: 10px;">{detail_label}</td>
+                                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{clients_list}</td>
+                                </tr>
+                        """
+
         # Section métriques INDIVIDUELLES avec détails
         individual_metrics = {
             "rdv_places_individual": ("Nombre de rendez-vous placés", None),
-            "nombre_commandes_individual": ("Nombre de commandes", None),
+            "nombre_commandes_individual": ("Nombre de commandes", "ordering_clients_details_individual"),
             "recommandations_individual": (
                 "Nombre de recommandations",
                 "recommandations_details_individual"
@@ -1163,8 +1378,10 @@ def generate_report_html_table(report_data):
                         if clients:
                             if details_key == "recommandations_details_individual":
                                 detail_label = f"Contacts recommandés - {user_name}"
-                            else:  # nouveaux_clients_details_individual
+                            elif details_key == "nouveaux_clients_details_individual":
                                 detail_label = f"Nouveaux clients - {user_name}"
+                            elif details_key == "ordering_clients_details_individual":
+                                detail_label = f"Clients ayant commandé - {user_name}"
 
                             # Créer liste à puces avec liens
                             clients_list = "<br>".join([
