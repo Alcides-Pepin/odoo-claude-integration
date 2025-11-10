@@ -1165,24 +1165,32 @@ def collect_top5_client_activities(start_date: str, end_date: str, top_clients_d
                 if messages_response.get('status') == 'success':
                     messages = messages_response.get('records', [])
 
-                # Récupérer les activités terminées
-                activities_result = odoo_search(
-                    model='mail.activity',
-                    domain=[
-                        ['res_id', '=', partner_id],
-                        ['res_model', '=', 'res.partner'],
-                        ['date_done', '>=', start_date],
-                        ['date_done', '<=', end_date],
-                        ['state', '=', 'done']
-                    ],
-                    fields=['summary', 'date_done', 'note'],
-                    limit=50
-                )
-
+                # Récupérer les activités terminées (avec protection contre les erreurs)
                 activities = []
-                activities_response = json.loads(activities_result)
-                if activities_response.get('status') == 'success':
-                    activities = activities_response.get('records', [])
+                try:
+                    activities_result = odoo_search(
+                        model='mail.activity',
+                        domain=[
+                            ['res_id', '=', partner_id],
+                            ['res_model', '=', 'res.partner'],
+                            ['date_done', '>=', start_date],
+                            ['date_done', '<=', end_date],
+                            ['state', '=', 'done']
+                        ],
+                        fields=['summary', 'date_done', 'note'],
+                        limit=50
+                    )
+
+                    activities_response = json.loads(activities_result)
+                    if activities_response.get('status') == 'success':
+                        activities = activities_response.get('records', [])
+                    else:
+                        # Log l'erreur mais continue sans activités
+                        print(f"[WARNING] Could not fetch activities for partner {partner_id}: {activities_response.get('error', 'Unknown error')}")
+                except Exception as e:
+                    # Ne pas faire planter tout le rapport si les activités échouent
+                    print(f"[WARNING] Exception while fetching activities for partner {partner_id}: {str(e)}")
+                    activities = []
 
                 top5_activities[top_key] = {
                     'id': partner_id,
