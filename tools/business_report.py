@@ -475,7 +475,7 @@ def get_recommendations_count(start_date: str, end_date: str, user_ids: List[int
 
 
 def get_deliveries_count(start_date: str, end_date: str, user_ids: List[int]):
-    """MODIFIÉ pour supporter plusieurs utilisateurs"""
+    """MODIFIÉ pour supporter plusieurs utilisateurs et filtrer uniquement les livraisons sortantes"""
     try:
         result = odoo_execute(
             model='stock.picking',
@@ -483,7 +483,8 @@ def get_deliveries_count(start_date: str, end_date: str, user_ids: List[int]):
             args=[[
                 ['date_done', '>=', start_date],
                 ['date_done', '<=', end_date],
-                ['user_id', 'in', user_ids]
+                ['user_id', 'in', user_ids],
+                ['picking_type_code', '=', 'outgoing']  # Uniquement les livraisons clients
             ]]
         )
 
@@ -958,13 +959,14 @@ def get_delivered_clients_details_individual(start_date: str, end_date: str, use
         individual_details = {}
 
         for user_id in user_ids:
-            # Get deliveries in period for this specific user
+            # Get deliveries in period for this specific user (outgoing only)
             result = odoo_search(
                 model='stock.picking',
                 domain=[
                     ['date_done', '>=', start_date],
                     ['date_done', '<=', end_date],
-                    ['user_id', '=', user_id]
+                    ['user_id', '=', user_id],
+                    ['picking_type_code', '=', 'outgoing']  # Uniquement les livraisons clients
                 ],
                 fields=['partner_id'],
                 limit=10000

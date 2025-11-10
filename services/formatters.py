@@ -30,14 +30,14 @@ def strip_html_tags(html_text):
 
 def format_currency(amount):
     """
-    Format amount as currency - CORRIGÉ pour gérer None
+    Format amount as currency with cents - CORRIGÉ pour gérer None
     """
     if amount is None or amount == 0:
-        return "0 €"
+        return "0,00 €"
     try:
-        return f"{float(amount):,.0f} €".replace(",", " ")
+        return f"{float(amount):,.2f} €".replace(",", " ").replace(".", ",")
     except (ValueError, TypeError):
-        return "0 €"
+        return "0,00 €"
 
 
 def extract_text_from_html(html_content: str, max_length: int = None) -> str:
