@@ -954,7 +954,18 @@ def get_ordering_clients_details_individual(start_date: str, end_date: str, user
 
 
 def get_delivered_clients_details_individual(start_date: str, end_date: str, user_ids: List[int]):
-    """Get detailed list of clients who received deliveries for each user individually"""
+    """
+    Get detailed list of deliveries with their clients for each user individually
+
+    Args:
+        start_date: Start date in ISO format
+        end_date: End date in ISO format
+        user_ids: List of user IDs
+
+    Returns:
+        Dict with user_id as key and list of deliveries as value
+        Each delivery contains: picking_id, picking_name, partner_id, partner_name
+    """
     try:
         individual_details = {}
 
@@ -968,45 +979,30 @@ def get_delivered_clients_details_individual(start_date: str, end_date: str, use
                     ['user_id', '=', user_id],
                     ['picking_type_code', '=', 'outgoing']  # Uniquement les livraisons clients
                 ],
-                fields=['partner_id'],
+                fields=['id', 'name', 'partner_id'],
                 limit=10000
             )
 
             response = json.loads(result)
             if response.get('status') == 'success':
-                # Get unique partner IDs from deliveries for this user
-                partner_ids = list(set([
-                    picking['partner_id'][0]
-                    for picking in response.get('records', [])
-                    if picking.get('partner_id')
-                ]))
-
-                delivered_clients = []
-                for partner_id in partner_ids:
-                    # Get client details
-                    client_details = odoo_search(
-                        model='res.partner',
-                        domain=[['id', '=', partner_id]],
-                        fields=['id', 'name'],
-                        limit=1
-                    )
-
-                    client_response = json.loads(client_details)
-                    if client_response.get('status') == 'success' and client_response.get('records'):
-                        client = client_response['records'][0]
-                        delivered_clients.append({
-                            'id': client['id'],
-                            'name': client.get('name', 'Client sans nom')
+                deliveries = []
+                for picking in response.get('records', []):
+                    if picking.get('partner_id'):
+                        deliveries.append({
+                            'picking_id': picking['id'],
+                            'picking_name': picking.get('name', 'Livraison sans nom'),
+                            'partner_id': picking['partner_id'][0],
+                            'partner_name': picking['partner_id'][1] if len(picking['partner_id']) > 1 else 'Client sans nom'
                         })
 
-                individual_details[user_id] = delivered_clients
+                individual_details[user_id] = deliveries
             else:
                 individual_details[user_id] = []
 
         return individual_details
 
     except Exception as e:
-        raise Exception(f"Error getting delivered clients details: {str(e)}")
+        raise Exception(f"Error getting delivery details: {str(e)}")
 
 
 def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
@@ -1364,21 +1360,22 @@ def generate_report_html_table(report_data):
                     </tr>
             """
 
-            # Ajouter les détails des clients livrés après la ligne Livraisons
+            # Ajouter les détails des livraisons effectuées après la ligne Livraisons
             if key == "livraisons" and delivered_clients_details:
-                for user_id, clients in delivered_clients_details.items():
-                    if clients:
+                for user_id, deliveries in delivered_clients_details.items():
+                    if deliveries:
                         user_name = user_name_map.get(user_id, f"User {user_id}")
-                        detail_label = f"Clients ayant été livrés - {user_name}"
-                        clients_list = "<br>".join([
-                            f"• <a href='{ODOO_URL}/web#id={client['id']}&model=res.partner&view_type=form'>{client['name']}</a>"
-                            for client in clients
+                        detail_label = f"Livraisons effectuées - {user_name}"
+                        deliveries_list = "<br>".join([
+                            f"• <a href='{ODOO_URL}/web#id={delivery['picking_id']}&model=stock.picking&view_type=form'>{delivery['picking_name']}</a> "
+                            f"(<a href='{ODOO_URL}/web#id={delivery['partner_id']}&model=res.partner&view_type=form'>{delivery['partner_name']}</a>)"
+                            for delivery in deliveries
                         ])
 
                         html += f"""
                                 <tr>
                                     <td style="border: 1px solid #dee2e6; padding: 10px;">{detail_label}</td>
-                                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{clients_list}</td>
+                                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: left; font-size: 0.9em;">{deliveries_list}</td>
                                 </tr>
                         """
 
