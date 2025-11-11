@@ -5,12 +5,12 @@ Modifie ce fichier pour ajouter/retirer des utilisateurs ou changer les destinat
 
 # Rapports d'activité - un rapport par utilisateur
 ACTIVITY_REPORTS = [
-    {"user_id": 747, "project_id": 211, "task_column_id": 942},  # Adrien Massart-Lambert
-    {"user_id": 21, "project_id": 83, "task_column_id": 477},   # Agathe Férat
-    {"user_id": 7, "project_id": 158, "task_column_id": 726},    # Alcides De Oliveira Guerra
-    {"user_id": 863, "project_id": 189, "task_column_id": 844},  # Alexandre Schmitt
-    {"user_id": 16, "project_id": 79, "task_column_id": 116},   # Amandine Aubry
-    {"user_id": 208, "project_id": 42, "task_column_id": 219},  # Antoine Hemmerlé
+    # {"user_id": 747, "project_id": 211, "task_column_id": 942},  # Adrien Massart-Lambert
+    # {"user_id": 21, "project_id": 83, "task_column_id": 477},   # Agathe Férat
+    # {"user_id": 7, "project_id": 158, "task_column_id": 726},    # Alcides De Oliveira Guerra
+    # {"user_id": 863, "project_id": 189, "task_column_id": 844},  # Alexandre Schmitt
+    # {"user_id": 16, "project_id": 79, "task_column_id": 116},   # Amandine Aubry
+    # {"user_id": 208, "project_id": 42, "task_column_id": 219},  # Antoine Hemmerlé
     {"user_id": 701, "project_id": 181, "task_column_id": 789},  # Antonina Onishchenko
     {"user_id": 17, "project_id": 45, "task_column_id": 138},   # Axel Aragoncillo
     {"user_id": 13, "project_id": 20, "task_column_id": 112},   # Axel Lemarinier
