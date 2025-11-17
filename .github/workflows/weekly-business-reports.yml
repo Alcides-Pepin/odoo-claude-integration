@@ -1,7 +1,7 @@
 name: Weekly Business Reports
 on:
   schedule:
-    - cron: '0 8 * * 1'  # Chaque lundi à 8h UTC
+    - cron: '0 0 * * 1'  # Chaque lundi à minuit UTC
   workflow_dispatch:  # Permet de lancer manuellement depuis GitHub
 
 jobs:

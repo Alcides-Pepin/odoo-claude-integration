@@ -2,8 +2,8 @@ name: Weekly Activity Reports
 
 on:
   schedule:
-    # Chaque lundi à 8h00 UTC (9h Paris hiver / 10h Paris été)
-    - cron: '0 8 * * 1'
+    # Chaque lundi à minuit UTC
+    - cron: '0 0 * * 1'
   workflow_dispatch:  # Permet déclenchement manuel pour tests
 
 jobs:
