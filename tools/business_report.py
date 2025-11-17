@@ -303,10 +303,129 @@ def get_company_invoices_revenue(
         raise Exception(f"Error calculating invoiced revenue: {str(e)}")
 
 
+def get_company_invoices_revenue_by_trademark(
+    company_id: int,
+    start_date: str,
+    end_date: str,
+    user_ids: List[int],
+    with_opportunities=None
+):
+    """
+    Fonction pour calculer le CA facturé HT par marque commerciale
+
+    Args:
+        company_id: ID de la société
+        start_date: Date de début
+        end_date: Date de fin
+        user_ids: Liste des IDs utilisateurs
+        with_opportunities: Filtre opportunités (True/False/None)
+
+    Returns:
+        Dict avec les montants par marque: {"La Balle": 3000, "Sans marque": 500, ...}
+    """
+    try:
+        # Build domain for account.move (invoices)
+        domain = [
+            ['company_id', '=', company_id],
+            ['invoice_date', '>=', start_date],
+            ['invoice_date', '<=', end_date],
+            ['invoice_user_id', 'in', user_ids],
+            ['move_type', '=', 'out_invoice'],
+            ['state', '=', 'posted']
+        ]
+
+        # Add opportunities filter
+        if with_opportunities is True:
+            domain.append([
+                'invoice_line_ids.sale_line_ids.order_id.opportunity_id',
+                '!=',
+                False
+            ])
+        elif with_opportunities is False:
+            domain.append([
+                'invoice_line_ids.sale_line_ids.order_id.opportunity_id',
+                '=',
+                False
+            ])
+
+        # Search invoices with invoice_line_ids
+        result = odoo_search(
+            model='account.move',
+            domain=domain,
+            fields=['id', 'invoice_line_ids'],
+            limit=100
+        )
+
+        response = json.loads(result)
+        if response.get('status') != 'success':
+            raise Exception(
+                f"Search failed: {response.get('error', 'Unknown error')}"
+            )
+
+        invoices = response.get('records', [])
+        trademark_totals = {}
+
+        # Pour chaque facture, récupérer les lignes
+        for invoice in invoices:
+            line_ids = invoice.get('invoice_line_ids', [])
+
+            if not line_ids:
+                continue
+
+            # Récupérer les lignes de facture avec product_id et price_subtotal
+            lines_result = odoo_search(
+                model='account.move.line',
+                domain=[['id', 'in', line_ids]],
+                fields=['product_id', 'price_subtotal'],
+                limit=1000
+            )
+
+            lines_response = json.loads(lines_result)
+            if lines_response.get('status') != 'success':
+                continue
+
+            lines = lines_response.get('records', [])
+
+            for line in lines:
+                product_id = line.get('product_id')
+                price_subtotal = line.get('price_subtotal', 0)
+
+                if not product_id or not isinstance(product_id, list):
+                    # Pas de produit, catégoriser comme "Sans marque"
+                    trademark = "Sans marque"
+                else:
+                    # Récupérer le champ products_trademark du produit
+                    product_result = odoo_search(
+                        model='product.product',
+                        domain=[['id', '=', product_id[0]]],
+                        fields=['products_trademark'],
+                        limit=1
+                    )
+
+                    product_response = json.loads(product_result)
+                    if (product_response.get('status') == 'success' and
+                        product_response.get('records')):
+                        trademark = product_response['records'][0].get('products_trademark')
+                        if not trademark or trademark.strip() == '':
+                            trademark = "Sans marque"
+                    else:
+                        trademark = "Sans marque"
+
+                # Ajouter au total de la marque
+                if trademark not in trademark_totals:
+                    trademark_totals[trademark] = 0
+                trademark_totals[trademark] += price_subtotal
+
+        return trademark_totals
+
+    except Exception as e:
+        raise Exception(f"Error calculating revenue by trademark: {str(e)}")
+
+
 def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
     """
     Collect all revenue data for the business report using dynamic company detection
-    REFACTORISÉ pour générer CA individuel par commercial + totaux par société
+    REFACTORISÉ pour générer CA individuel par commercial + totaux par société + détails par marque
     """
     try:
         # Get ALL company IDs for ALL users
@@ -333,6 +452,8 @@ def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
 
         # Calculate revenue for each company
         revenue_data = {}
+        # NOUVEAU: Stocker les détails par marque
+        trademark_details = {}
 
         for company_id in all_company_ids:
             company_key = get_company_name(company_id)
@@ -348,8 +469,19 @@ def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
                 revenue_data[key] = individual_ca
                 company_total += individual_ca
 
+                # NOUVEAU: Récupérer le détail par marque pour ce commercial et cette société
+                trademark_breakdown = get_company_invoices_revenue_by_trademark(
+                    company_id, start_date, end_date, [user_id],
+                    with_opportunities=None
+                )
+                trademark_key = f"ca_facture_{company_key}_commercial_{user_id}_trademarks"
+                trademark_details[trademark_key] = trademark_breakdown
+
             # CA total pour la société
             revenue_data[f"ca_facture_{company_key}_total"] = company_total
+
+        # Ajouter les détails de marque dans le retour
+        revenue_data['trademark_details'] = trademark_details
 
         return revenue_data
 
@@ -1284,9 +1416,10 @@ def generate_report_html_table(report_data):
         # Section CA - Format avec factures individuelles par société
         invoiced_details_by_company = metrics_data.get('invoiced_details_by_company', {})
         all_company_ids = metrics_data.get('all_company_ids', [])
+        trademark_details = revenue_data.get('trademark_details', {})
 
         for key, value in revenue_data.items():
-            if key.startswith('ca_facture_') and 'commercial_' in key:
+            if key.startswith('ca_facture_') and 'commercial_' in key and not key.endswith('_trademarks'):
                 # Extraire société et user_id
                 parts = key.split('_')
                 company_name = parts[2].title()  # ca_facture_[company]_commercial_[id]
@@ -1303,6 +1436,28 @@ def generate_report_html_table(report_data):
                         <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{format_currency(value)}</td>
                     </tr>
                 """
+
+                # NOUVEAU: Ajouter les sous-lignes par marque commerciale
+                company_key_lower = company_name.lower().replace('é', 'e').replace(' ', '_')
+                trademark_key = f"ca_facture_{company_key_lower}_commercial_{user_id}_trademarks"
+
+                if trademark_key in trademark_details:
+                    trademarks = trademark_details[trademark_key]
+                    if trademarks:
+                        # Trier les marques par montant décroissant pour un meilleur affichage
+                        sorted_trademarks = sorted(trademarks.items(), key=lambda x: x[1], reverse=True)
+
+                        for trademark_name, trademark_amount in sorted_trademarks:
+                            html += f"""
+                                <tr style="background-color: #f8f9fa;">
+                                    <td style="border: 1px solid #dee2e6; padding: 10px; padding-left: 30px; font-size: 0.95em; color: #6c757d;">
+                                        └─ {trademark_name}
+                                    </td>
+                                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right; font-size: 0.95em; color: #6c757d;">
+                                        {format_currency(trademark_amount)}
+                                    </td>
+                                </tr>
+                            """
 
                 # Trouver le company_id correspondant au company_name
                 matching_company_id = None
