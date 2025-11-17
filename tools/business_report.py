@@ -630,6 +630,81 @@ def get_deliveries_count(start_date: str, end_date: str, user_ids: List[int]):
         raise Exception(f"Error getting deliveries count: {str(e)}")
 
 
+def get_payment_reminders_count(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    Compte les activités de recouvrement (relances impayées) terminées pour plusieurs utilisateurs
+
+    Args:
+        start_date: Date de début au format YYYY-MM-DD
+        end_date: Date de fin au format YYYY-MM-DD
+        user_ids: Liste des IDs utilisateurs
+
+    Returns:
+        Nombre total d'activités de recouvrement terminées
+    """
+    try:
+        result = odoo_execute(
+            model='mail.activity',
+            method='search_count',
+            args=[[
+                ['activity_type_id', '=', 123],  # Type "Recouvrement"
+                ['user_id', 'in', user_ids],
+                ['date_done', '>=', start_date],
+                ['date_done', '<=', end_date],
+                ['state', '=', 'done']
+            ]]
+        )
+
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('result', 0)
+        else:
+            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+
+    except Exception as e:
+        raise Exception(f"Error getting payment reminders count: {str(e)}")
+
+
+def get_payment_reminders_count_individual(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    Compte les activités de recouvrement individuellement pour chaque utilisateur
+
+    Args:
+        start_date: Date de début au format YYYY-MM-DD
+        end_date: Date de fin au format YYYY-MM-DD
+        user_ids: Liste des IDs utilisateurs
+
+    Returns:
+        Dict avec user_id comme clé et le nombre de relances comme valeur
+    """
+    try:
+        individual_counts = {}
+
+        for user_id in user_ids:
+            result = odoo_execute(
+                model='mail.activity',
+                method='search_count',
+                args=[[
+                    ['activity_type_id', '=', 123],  # Type "Recouvrement"
+                    ['user_id', '=', user_id],
+                    ['date_done', '>=', start_date],
+                    ['date_done', '<=', end_date],
+                    ['state', '=', 'done']
+                ]]
+            )
+
+            response = json.loads(result)
+            if response.get('status') == 'success':
+                individual_counts[user_id] = response.get('result', 0)
+            else:
+                individual_counts[user_id] = 0
+
+        return individual_counts
+
+    except Exception as e:
+        raise Exception(f"Error getting individual payment reminders count: {str(e)}")
+
+
 def get_appointments_placed_individual(start_date: str, end_date: str, user_ids: List[int]):
     """Get appointments placed count for each user individually"""
     try:
@@ -1164,7 +1239,8 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
             "rdv_realises": get_appointments_realized(start_date, end_date, user_ids),
             "nombre_commandes_total": get_orders_count(start_date, end_date, user_ids),
             "recommandations_total": get_recommendations_count(start_date, end_date, user_ids),
-            "livraisons": get_deliveries_count(start_date, end_date, user_ids)
+            "livraisons": get_deliveries_count(start_date, end_date, user_ids),
+            "relances_impayees_total": get_payment_reminders_count(start_date, end_date, user_ids)
         }
 
         # Métriques INDIVIDUELLES (compteurs)
@@ -1172,7 +1248,8 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
             "rdv_places_individual": get_appointments_placed_individual(start_date, end_date, user_ids),
             "nombre_commandes_individual": get_orders_count_individual(start_date, end_date, user_ids),
             "recommandations_individual": get_recommendations_count_individual(start_date, end_date, user_ids),
-            "nouveaux_clients_individual": get_new_clients_count_individual(start_date, end_date, user_ids)
+            "nouveaux_clients_individual": get_new_clients_count_individual(start_date, end_date, user_ids),
+            "relances_impayees_individual": get_payment_reminders_count_individual(start_date, end_date, user_ids)
         }
 
         # Détails INDIVIDUELS par société pour les factures
@@ -1601,12 +1678,33 @@ def generate_report_html_table(report_data):
                                     </tr>
                             """
 
-        # Section lignes vides pour saisie manuelle
+        # Section relances impayées - Afficher d'abord le total agrégé si plusieurs utilisateurs
+        relances_impayees_total = metrics_data.get('relances_impayees_total', 0)
+        relances_impayees_individual = metrics_data.get('relances_impayees_individual', {})
+
+        # Si plusieurs utilisateurs, afficher d'abord le total
+        if len(user_ids) > 1:
+            html += f"""
+                    <tr>
+                        <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de relances impayés faites (Total)</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{relances_impayees_total}</td>
+                    </tr>
+            """
+
+        # Afficher les détails par utilisateur
+        for user_id, count in relances_impayees_individual.items():
+            user_name = user_name_map.get(user_id, f"User {user_id}")
+            label = f"Nombre de relances impayés faites - {user_name}"
+
+            html += f"""
+                    <tr>
+                        <td style="border: 1px solid #dee2e6; padding: 10px;">{label}</td>
+                        <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right;">{count}</td>
+                    </tr>
+            """
+
+        # Section ligne vide pour saisie manuelle (paiements récupérés)
         html += f"""
-                <tr style="background-color: #fff3cd;">
-                    <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de relances impayés faites</td>
-                    <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right; font-style: italic; color: #6c757d;">À remplir</td>
-                </tr>
                 <tr style="background-color: #fff3cd;">
                     <td style="border: 1px solid #dee2e6; padding: 10px;">Nombre de paiements récupérés</td>
                     <td style="border: 1px solid #dee2e6; padding: 10px; text-align: right; font-style: italic; color: #6c757d;">À remplir</td>
