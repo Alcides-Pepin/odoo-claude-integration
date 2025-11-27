@@ -613,9 +613,9 @@ def get_gd_visits_count(start_date: str, end_date: str, user_ids: List[int]):
             model='wine.price.survey',
             method='search_count',
             args=[[
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date],
-                ['create_uid', 'in', user_ids],
+                ['survey_date', '>=', start_date],
+                ['survey_date', '<=', end_date],
+                ['user_id', 'in', user_ids],
                 '|',
                 ['x_studio_is_meeting', '=', False],
                 ['x_studio_is_meeting', '=', None]
@@ -661,9 +661,9 @@ def get_gd_meetings_count(start_date: str, end_date: str, user_ids: List[int]):
             model='wine.price.survey',
             method='search_count',
             args=[[
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date],
-                ['create_uid', 'in', user_ids],
+                ['survey_date', '>=', start_date],
+                ['survey_date', '<=', end_date],
+                ['user_id', 'in', user_ids],
                 ['x_studio_is_meeting', '=', True]
             ]]
         )
