@@ -513,10 +513,51 @@ def get_appointments_placed(start_date: str, end_date: str, user_ids: List[int])
         raise Exception(f"Error getting appointments placed: {str(e)}")
 
 
-def get_passer_voir_count(start_date: str, end_date: str, user_ids: List[int]):
-    """MODIFIÉ pour supporter plusieurs utilisateurs"""
+def check_field_exists(model: str, field_name: str) -> bool:
+    """
+    Vérifie si un champ existe sur un modèle Odoo
+    Utile pour les champs Studio qui peuvent être supprimés
+
+    Args:
+        model: Nom du modèle Odoo (ex: 'wine.price.survey')
+        field_name: Nom du champ à vérifier (ex: 'x_studio_is_meeting')
+
+    Returns:
+        True si le champ existe, False sinon
+    """
     try:
         result = odoo_execute(
+            model='ir.model.fields',
+            method='search_count',
+            args=[[
+                ['model', '=', model],
+                ['name', '=', field_name]
+            ]]
+        )
+
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('result', 0) > 0
+        else:
+            return False
+
+    except Exception as e:
+        print(f"[WARNING] Could not check field existence for {model}.{field_name}: {str(e)}")
+        return False
+
+
+def get_passer_voir_count(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    MODIFIÉ pour supporter plusieurs utilisateurs ET inclure les visites GD
+    Compte à la fois:
+    - Les crm.lead avec stage "passer_voir" (commerciaux CHR)
+    - Les wine.price.survey sans rendez-vous (commerciaux GD)
+
+    Avec protection: si le champ Studio n'existe plus, seuls les CHR sont comptés
+    """
+    try:
+        # Compter les crm.lead "passer_voir" (CHR)
+        result_chr = odoo_execute(
             model='crm.lead',
             method='search_count',
             args=[[
@@ -527,20 +568,130 @@ def get_passer_voir_count(start_date: str, end_date: str, user_ids: List[int]):
             ]]
         )
 
-        response = json.loads(result)
-        if response.get('status') == 'success':
-            return response.get('result', 0)
+        response_chr = json.loads(result_chr)
+        if response_chr.get('status') == 'success':
+            chr_count = response_chr.get('result', 0)
         else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+            raise Exception(f"CHR search failed: {response_chr.get('error', 'Unknown error')}")
+
+        # Compter les wine.price.survey sans rendez-vous (GD visites)
+        # Cette fonction retourne 0 si le champ n'existe plus
+        gd_count = get_gd_visits_count(start_date, end_date, user_ids)
+
+        # Retourner le total
+        return chr_count + gd_count
 
     except Exception as e:
         raise Exception(f"Error getting Passer Voir count: {str(e)}")
 
 
-def get_appointments_realized(start_date: str, end_date: str, user_ids: List[int]):
-    """MODIFIÉ pour supporter plusieurs utilisateurs"""
+def get_gd_visits_count(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    Compte les visites GD (wine.price.survey sans rendez-vous)
+    Avec protection contre la suppression du champ Studio x_studio_is_meeting
+
+    Args:
+        start_date: Date de début au format YYYY-MM-DD
+        end_date: Date de fin au format YYYY-MM-DD
+        user_ids: Liste des IDs utilisateurs
+
+    Returns:
+        Nombre de visites GD (wine.price.survey où x_studio_is_meeting = False ou absent)
+        Retourne 0 si le champ n'existe plus ou en cas d'erreur
+    """
     try:
+        # Vérifier si le champ x_studio_is_meeting existe
+        field_exists = check_field_exists('wine.price.survey', 'x_studio_is_meeting')
+
+        if not field_exists:
+            print("[WARNING] Field x_studio_is_meeting does not exist on wine.price.survey, skipping GD visits count")
+            return 0
+
+        # Le champ existe, procéder normalement
+        # Compter tous les wine.price.survey SANS x_studio_is_meeting = True
         result = odoo_execute(
+            model='wine.price.survey',
+            method='search_count',
+            args=[[
+                ['create_date', '>=', start_date],
+                ['create_date', '<=', end_date],
+                ['create_uid', 'in', user_ids],
+                '|',
+                ['x_studio_is_meeting', '=', False],
+                ['x_studio_is_meeting', '=', None]
+            ]]
+        )
+
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('result', 0)
+        else:
+            print(f"[WARNING] GD visits search failed: {response.get('error', 'Unknown error')}")
+            return 0
+
+    except Exception as e:
+        print(f"[WARNING] Error getting GD visits count: {str(e)}")
+        return 0
+
+
+def get_gd_meetings_count(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    Compte les rendez-vous GD (wine.price.survey avec x_studio_is_meeting = True)
+    Avec protection contre la suppression du champ Studio x_studio_is_meeting
+
+    Args:
+        start_date: Date de début au format YYYY-MM-DD
+        end_date: Date de fin au format YYYY-MM-DD
+        user_ids: Liste des IDs utilisateurs
+
+    Returns:
+        Nombre de rendez-vous GD (wine.price.survey où x_studio_is_meeting = True)
+        Retourne 0 si le champ n'existe plus ou en cas d'erreur
+    """
+    try:
+        # Vérifier si le champ x_studio_is_meeting existe
+        field_exists = check_field_exists('wine.price.survey', 'x_studio_is_meeting')
+
+        if not field_exists:
+            print("[WARNING] Field x_studio_is_meeting does not exist on wine.price.survey, skipping GD meetings count")
+            return 0
+
+        # Le champ existe, procéder normalement
+        result = odoo_execute(
+            model='wine.price.survey',
+            method='search_count',
+            args=[[
+                ['create_date', '>=', start_date],
+                ['create_date', '<=', end_date],
+                ['create_uid', 'in', user_ids],
+                ['x_studio_is_meeting', '=', True]
+            ]]
+        )
+
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('result', 0)
+        else:
+            print(f"[WARNING] GD meetings search failed: {response.get('error', 'Unknown error')}")
+            return 0
+
+    except Exception as e:
+        print(f"[WARNING] Error getting GD meetings count: {str(e)}")
+        return 0
+
+
+def get_appointments_realized(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    MODIFIÉ pour supporter plusieurs utilisateurs ET inclure les rendez-vous GD
+    Compte à la fois:
+    - Les wine.tasting (commerciaux CHR)
+    - Les wine.price.survey avec x_studio_is_meeting=True (commerciaux GD)
+
+    Avec protection: si le champ Studio n'existe plus, seuls les CHR sont comptés
+    """
+    try:
+        # Compter les wine.tasting (CHR)
+        result_chr = odoo_execute(
             model='wine.tasting',
             method='search_count',
             args=[[
@@ -550,11 +701,18 @@ def get_appointments_realized(start_date: str, end_date: str, user_ids: List[int
             ]]
         )
 
-        response = json.loads(result)
-        if response.get('status') == 'success':
-            return response.get('result', 0)
+        response_chr = json.loads(result_chr)
+        if response_chr.get('status') == 'success':
+            chr_count = response_chr.get('result', 0)
         else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+            raise Exception(f"CHR search failed: {response_chr.get('error', 'Unknown error')}")
+
+        # Compter les wine.price.survey avec rendez-vous (GD)
+        # Cette fonction retourne 0 si le champ n'existe plus
+        gd_count = get_gd_meetings_count(start_date, end_date, user_ids)
+
+        # Retourner le total
+        return chr_count + gd_count
 
     except Exception as e:
         raise Exception(f"Error getting appointments realized: {str(e)}")
@@ -1235,8 +1393,8 @@ def collect_metrics_data(start_date: str, end_date: str, user_ids: List[int]):
         # Métriques AGRÉGÉES (comme avant)
         aggregated_metrics = {
             "rdv_places_total": get_appointments_placed(start_date, end_date, user_ids),
-            "passer_voir": get_passer_voir_count(start_date, end_date, user_ids),
-            "rdv_realises": get_appointments_realized(start_date, end_date, user_ids),
+            "passer_voir": get_passer_voir_count(start_date, end_date, user_ids),  # Inclut maintenant CHR + GD
+            "rdv_realises": get_appointments_realized(start_date, end_date, user_ids),  # Inclut maintenant CHR + GD
             "nombre_commandes_total": get_orders_count(start_date, end_date, user_ids),
             "recommandations_total": get_recommendations_count(start_date, end_date, user_ids),
             "livraisons": get_deliveries_count(start_date, end_date, user_ids),
