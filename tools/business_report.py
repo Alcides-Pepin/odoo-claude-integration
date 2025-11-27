@@ -618,13 +618,12 @@ def get_gd_visits_count(start_date: str, end_date: str, user_ids: List[int]):
 
         # Le champ existe, procéder normalement
         # Compter tous les wine.price.survey SANS x_studio_is_meeting = True
+        # Note: On utilise != True au lieu de = False | = None car XML-RPC ne peut pas marshaller None
         domain = [
             ['survey_date', '>=', start_date_only],
             ['survey_date', '<=', end_date_only],
             ['user_id', 'in', user_ids],
-            '|',
-            ['x_studio_is_meeting', '=', False],
-            ['x_studio_is_meeting', '=', None]
+            ['x_studio_is_meeting', '!=', True]
         ]
         print(f"[DEBUG] GD visits domain: {domain}")
 
