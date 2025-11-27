@@ -607,14 +607,19 @@ def get_gd_visits_count(start_date: str, end_date: str, user_ids: List[int]):
             print("[WARNING] Field x_studio_is_meeting does not exist on wine.price.survey, skipping GD visits count")
             return 0
 
+        # Extraire uniquement la partie date (YYYY-MM-DD) sans l'heure
+        # survey_date est un champ Date, pas DateTime
+        start_date_only = start_date.split('T')[0].split(' ')[0]
+        end_date_only = end_date.split('T')[0].split(' ')[0]
+
         # Le champ existe, procéder normalement
         # Compter tous les wine.price.survey SANS x_studio_is_meeting = True
         result = odoo_execute(
             model='wine.price.survey',
             method='search_count',
             args=[[
-                ['survey_date', '>=', start_date],
-                ['survey_date', '<=', end_date],
+                ['survey_date', '>=', start_date_only],
+                ['survey_date', '<=', end_date_only],
                 ['user_id', 'in', user_ids],
                 '|',
                 ['x_studio_is_meeting', '=', False],
@@ -656,13 +661,18 @@ def get_gd_meetings_count(start_date: str, end_date: str, user_ids: List[int]):
             print("[WARNING] Field x_studio_is_meeting does not exist on wine.price.survey, skipping GD meetings count")
             return 0
 
+        # Extraire uniquement la partie date (YYYY-MM-DD) sans l'heure
+        # survey_date est un champ Date, pas DateTime
+        start_date_only = start_date.split('T')[0].split(' ')[0]
+        end_date_only = end_date.split('T')[0].split(' ')[0]
+
         # Le champ existe, procéder normalement
         result = odoo_execute(
             model='wine.price.survey',
             method='search_count',
             args=[[
-                ['survey_date', '>=', start_date],
-                ['survey_date', '<=', end_date],
+                ['survey_date', '>=', start_date_only],
+                ['survey_date', '<=', end_date_only],
                 ['user_id', 'in', user_ids],
                 ['x_studio_is_meeting', '=', True]
             ]]
