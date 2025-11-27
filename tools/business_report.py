@@ -600,11 +600,8 @@ def get_gd_visits_count(start_date: str, end_date: str, user_ids: List[int]):
         Retourne 0 si le champ n'existe plus ou en cas d'erreur
     """
     try:
-        print(f"[DEBUG] get_gd_visits_count called with start_date={start_date}, end_date={end_date}, user_ids={user_ids}")
-
         # Vérifier si le champ x_studio_is_meeting existe
         field_exists = check_field_exists('wine.price.survey', 'x_studio_is_meeting')
-        print(f"[DEBUG] Field x_studio_is_meeting exists: {field_exists}")
 
         if not field_exists:
             print("[WARNING] Field x_studio_is_meeting does not exist on wine.price.survey, skipping GD visits count")
@@ -614,39 +611,30 @@ def get_gd_visits_count(start_date: str, end_date: str, user_ids: List[int]):
         # survey_date est un champ Date, pas DateTime
         start_date_only = start_date.split('T')[0].split(' ')[0]
         end_date_only = end_date.split('T')[0].split(' ')[0]
-        print(f"[DEBUG] Date extraction: start_date_only={start_date_only}, end_date_only={end_date_only}")
 
         # Le champ existe, procéder normalement
         # Compter tous les wine.price.survey SANS x_studio_is_meeting = True
         # Note: On utilise != True au lieu de = False | = None car XML-RPC ne peut pas marshaller None
-        domain = [
-            ['survey_date', '>=', start_date_only],
-            ['survey_date', '<=', end_date_only],
-            ['user_id', 'in', user_ids],
-            ['x_studio_is_meeting', '!=', True]
-        ]
-        print(f"[DEBUG] GD visits domain: {domain}")
-
         result = odoo_execute(
             model='wine.price.survey',
             method='search_count',
-            args=[domain]
+            args=[[
+                ['survey_date', '>=', start_date_only],
+                ['survey_date', '<=', end_date_only],
+                ['user_id', 'in', user_ids],
+                ['x_studio_is_meeting', '!=', True]
+            ]]
         )
 
-        print(f"[DEBUG] GD visits raw result: {result}")
         response = json.loads(result)
         if response.get('status') == 'success':
-            count = response.get('result', 0)
-            print(f"[DEBUG] GD visits count: {count}")
-            return count
+            return response.get('result', 0)
         else:
             print(f"[WARNING] GD visits search failed: {response.get('error', 'Unknown error')}")
             return 0
 
     except Exception as e:
         print(f"[WARNING] Error getting GD visits count: {str(e)}")
-        import traceback
-        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
         return 0
 
 
@@ -665,11 +653,8 @@ def get_gd_meetings_count(start_date: str, end_date: str, user_ids: List[int]):
         Retourne 0 si le champ n'existe plus ou en cas d'erreur
     """
     try:
-        print(f"[DEBUG] get_gd_meetings_count called with start_date={start_date}, end_date={end_date}, user_ids={user_ids}")
-
         # Vérifier si le champ x_studio_is_meeting existe
         field_exists = check_field_exists('wine.price.survey', 'x_studio_is_meeting')
-        print(f"[DEBUG] Field x_studio_is_meeting exists: {field_exists}")
 
         if not field_exists:
             print("[WARNING] Field x_studio_is_meeting does not exist on wine.price.survey, skipping GD meetings count")
@@ -679,37 +664,28 @@ def get_gd_meetings_count(start_date: str, end_date: str, user_ids: List[int]):
         # survey_date est un champ Date, pas DateTime
         start_date_only = start_date.split('T')[0].split(' ')[0]
         end_date_only = end_date.split('T')[0].split(' ')[0]
-        print(f"[DEBUG] Date extraction: start_date_only={start_date_only}, end_date_only={end_date_only}")
 
         # Le champ existe, procéder normalement
-        domain = [
-            ['survey_date', '>=', start_date_only],
-            ['survey_date', '<=', end_date_only],
-            ['user_id', 'in', user_ids],
-            ['x_studio_is_meeting', '=', True]
-        ]
-        print(f"[DEBUG] GD meetings domain: {domain}")
-
         result = odoo_execute(
             model='wine.price.survey',
             method='search_count',
-            args=[domain]
+            args=[[
+                ['survey_date', '>=', start_date_only],
+                ['survey_date', '<=', end_date_only],
+                ['user_id', 'in', user_ids],
+                ['x_studio_is_meeting', '=', True]
+            ]]
         )
 
-        print(f"[DEBUG] GD meetings raw result: {result}")
         response = json.loads(result)
         if response.get('status') == 'success':
-            count = response.get('result', 0)
-            print(f"[DEBUG] GD meetings count: {count}")
-            return count
+            return response.get('result', 0)
         else:
             print(f"[WARNING] GD meetings search failed: {response.get('error', 'Unknown error')}")
             return 0
 
     except Exception as e:
         print(f"[WARNING] Error getting GD meetings count: {str(e)}")
-        import traceback
-        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
         return 0
 
 
