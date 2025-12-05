@@ -538,14 +538,18 @@ def get_rdv_degustation_activities_count(start_date: str, end_date: str, user_id
         Nombre d'activités "RDV Dégustation" créées (activity_type_id = 38)
     """
     try:
+        # Ajouter l'heure pour le format datetime requis par create_date
+        start_datetime = start_date if ' ' in start_date else f"{start_date} 00:00:00"
+        end_datetime = end_date if ' ' in end_date else f"{end_date} 23:59:59"
+
         result = odoo_execute(
             model='mail.activity',
             method='search_count',
             args=[[
                 ['activity_type_id', '=', 38],  # Type "RDV Dégustation"
-                ['user_id', 'in', user_ids],
-                ['create_date', '>=', start_date],
-                ['create_date', '<=', end_date]
+                ['create_uid', 'in', user_ids],  # CORRIGÉ: create_uid au lieu de user_id
+                ['create_date', '>=', start_datetime],
+                ['create_date', '<=', end_datetime]
             ]]
         )
 
