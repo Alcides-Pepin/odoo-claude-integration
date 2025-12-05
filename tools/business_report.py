@@ -542,25 +542,93 @@ def get_rdv_degustation_activities_count(start_date: str, end_date: str, user_id
         start_datetime = start_date if ' ' in start_date else f"{start_date} 00:00:00"
         end_datetime = end_date if ' ' in end_date else f"{end_date} 23:59:59"
 
+        domain = [
+            ['activity_type_id', '=', 38],  # Type "RDV Dégustation"
+            ['create_uid', 'in', user_ids],  # CORRIGÉ: create_uid au lieu de user_id
+            ['create_date', '>=', start_datetime],
+            ['create_date', '<=', end_datetime]
+        ]
+
+        # DEBUG: Log de la recherche
+        print(f"[DEBUG] get_rdv_degustation_activities_count called with:")
+        print(f"  - user_ids: {user_ids}")
+        print(f"  - start_datetime: {start_datetime}")
+        print(f"  - end_datetime: {end_datetime}")
+        print(f"  - domain: {domain}")
+
         result = odoo_execute(
             model='mail.activity',
             method='search_count',
-            args=[[
-                ['activity_type_id', '=', 38],  # Type "RDV Dégustation"
-                ['create_uid', 'in', user_ids],  # CORRIGÉ: create_uid au lieu de user_id
-                ['create_date', '>=', start_datetime],
-                ['create_date', '<=', end_datetime]
-            ]]
+            args=[domain]
         )
 
         response = json.loads(result)
+        print(f"[DEBUG] Response: {response}")
+
         if response.get('status') == 'success':
-            return response.get('result', 0)
+            count = response.get('result', 0)
+            print(f"[DEBUG] Found {count} mail.activity records")
+            return count
         else:
             raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
 
     except Exception as e:
+        print(f"[DEBUG] Exception in get_rdv_degustation_activities_count: {str(e)}")
         raise Exception(f"Error getting RDV Dégustation activities count: {str(e)}")
+
+
+def debug_mail_activities(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    FONCTION DE DIAGNOSTIC TEMPORAIRE
+    Explore les mail.activity pour comprendre pourquoi elles ne sont pas comptées
+    """
+    try:
+        print(f"\n[DEBUG] ===== DIAGNOSTIC MAIL.ACTIVITY =====")
+        print(f"[DEBUG] Recherche pour user_ids: {user_ids}")
+        print(f"[DEBUG] Période: {start_date} -> {end_date}")
+
+        # 1. Chercher TOUTES les activités créées par l'utilisateur dans la période
+        start_datetime = start_date if ' ' in start_date else f"{start_date} 00:00:00"
+        end_datetime = end_date if ' ' in end_date else f"{end_date} 23:59:59"
+
+        result = odoo_search(
+            model='mail.activity',
+            domain=[
+                ['create_uid', 'in', user_ids],
+                ['create_date', '>=', start_datetime],
+                ['create_date', '<=', end_datetime]
+            ],
+            fields=['id', 'activity_type_id', 'create_uid', 'create_date', 'user_id', 'summary'],
+            limit=50
+        )
+
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            activities = response.get('records', [])
+            print(f"[DEBUG] Trouvé {len(activities)} activités créées par l'utilisateur dans la période")
+
+            # Compter par activity_type_id
+            type_counts = {}
+            for activity in activities:
+                type_id = activity.get('activity_type_id')
+                if isinstance(type_id, list):
+                    type_id = type_id[0]
+                type_counts[type_id] = type_counts.get(type_id, 0) + 1
+
+                print(f"  - ID: {activity.get('id')}, Type: {activity.get('activity_type_id')}, "
+                      f"create_uid: {activity.get('create_uid')}, user_id: {activity.get('user_id')}, "
+                      f"summary: {activity.get('summary')}")
+
+            print(f"\n[DEBUG] Répartition par activity_type_id:")
+            for type_id, count in type_counts.items():
+                print(f"  - Type {type_id}: {count} activités")
+        else:
+            print(f"[DEBUG] Erreur lors de la recherche: {response.get('error')}")
+
+        print(f"[DEBUG] =====================================\n")
+
+    except Exception as e:
+        print(f"[DEBUG] Exception dans debug_mail_activities: {str(e)}")
 
 
 def check_field_exists(model: str, field_name: str) -> bool:
@@ -932,7 +1000,13 @@ def get_appointments_placed_individual(start_date: str, end_date: str, user_ids:
     try:
         individual_counts = {}
 
+        # DEBUG: Appeler la fonction de diagnostic pour le premier utilisateur
+        if user_ids:
+            debug_mail_activities(start_date, end_date, [user_ids[0]])
+
         for user_id in user_ids:
+            print(f"\n[DEBUG] Processing user_id: {user_id}")
+
             # Compter les crm.lead "rdv_degustation" (méthode classique)
             result = odoo_execute(
                 model='crm.lead',
@@ -951,11 +1025,16 @@ def get_appointments_placed_individual(start_date: str, end_date: str, user_ids:
             else:
                 crm_lead_count = 0
 
+            print(f"[DEBUG] crm_lead_count for user {user_id}: {crm_lead_count}")
+
             # Compter les mail.activity "RDV Dégustation" (nouvelle méthode)
             activity_count = get_rdv_degustation_activities_count(start_date, end_date, [user_id])
+            print(f"[DEBUG] activity_count for user {user_id}: {activity_count}")
 
             # Total pour cet utilisateur
-            individual_counts[user_id] = crm_lead_count + activity_count
+            total = crm_lead_count + activity_count
+            print(f"[DEBUG] TOTAL for user {user_id}: {total} ({crm_lead_count} + {activity_count})")
+            individual_counts[user_id] = total
 
         return individual_counts
 
