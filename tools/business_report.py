@@ -923,11 +923,17 @@ def get_payment_reminders_count_individual(start_date: str, end_date: str, user_
 
 
 def get_appointments_placed_individual(start_date: str, end_date: str, user_ids: List[int]):
-    """Get appointments placed count for each user individually"""
+    """
+    Get appointments placed count for each user individually
+    Compte à la fois:
+    - Les crm.lead avec stage "rdv_degustation" (méthode classique)
+    - Les mail.activity avec activity_type_id = 38 (nouvelle méthode de placement de RDV)
+    """
     try:
         individual_counts = {}
 
         for user_id in user_ids:
+            # Compter les crm.lead "rdv_degustation" (méthode classique)
             result = odoo_execute(
                 model='crm.lead',
                 method='search_count',
@@ -941,9 +947,15 @@ def get_appointments_placed_individual(start_date: str, end_date: str, user_ids:
 
             response = json.loads(result)
             if response.get('status') == 'success':
-                individual_counts[user_id] = response.get('result', 0)
+                crm_lead_count = response.get('result', 0)
             else:
-                individual_counts[user_id] = 0
+                crm_lead_count = 0
+
+            # Compter les mail.activity "RDV Dégustation" (nouvelle méthode)
+            activity_count = get_rdv_degustation_activities_count(start_date, end_date, [user_id])
+
+            # Total pour cet utilisateur
+            individual_counts[user_id] = crm_lead_count + activity_count
 
         return individual_counts
 
