@@ -490,27 +490,73 @@ def collect_revenue_data(start_date: str, end_date: str, user_ids: List[int]):
 
 
 def get_appointments_placed(start_date: str, end_date: str, user_ids: List[int]):
-    """MODIFIÉ pour supporter plusieurs utilisateurs"""
+    """
+    MODIFIÉ pour supporter plusieurs utilisateurs ET inclure les RDV Dégustation via mail.activity
+    Compte à la fois:
+    - Les crm.lead avec stage "rdv_degustation" (méthode classique)
+    - Les mail.activity avec activity_type_id = 38 (nouvelle méthode de placement de RDV)
+    """
     try:
+        # Compter les crm.lead "rdv_degustation" (méthode classique)
         result = odoo_search(
             model='crm.lead',
             domain=[
                 ['create_date', '>=', start_date],
                 ['create_date', '<=', end_date],
-                ['user_id', 'in', user_ids],  # CHANGÉ: 'in' au lieu de '='
+                ['user_id', 'in', user_ids],
                 ['stage_id', '=', STAGE_IDS["rdv_degustation"]]
             ],
             fields=['id']
         )
-        
+
         response = json.loads(result)
         if response.get('status') == 'success':
-            return response.get('returned_count', 0)
+            crm_lead_count = response.get('returned_count', 0)
         else:
-            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
-            
+            raise Exception(f"CRM Lead search failed: {response.get('error', 'Unknown error')}")
+
+        # Compter les mail.activity "RDV Dégustation" (nouvelle méthode)
+        activity_count = get_rdv_degustation_activities_count(start_date, end_date, user_ids)
+
+        # Retourner le total
+        return crm_lead_count + activity_count
+
     except Exception as e:
         raise Exception(f"Error getting appointments placed: {str(e)}")
+
+
+def get_rdv_degustation_activities_count(start_date: str, end_date: str, user_ids: List[int]):
+    """
+    Compte les activités "RDV Dégustation" placées via mail.activity
+
+    Args:
+        start_date: Date de début au format YYYY-MM-DD
+        end_date: Date de fin au format YYYY-MM-DD
+        user_ids: Liste des IDs utilisateurs
+
+    Returns:
+        Nombre d'activités "RDV Dégustation" créées (activity_type_id = 38)
+    """
+    try:
+        result = odoo_execute(
+            model='mail.activity',
+            method='search_count',
+            args=[[
+                ['activity_type_id', '=', 38],  # Type "RDV Dégustation"
+                ['user_id', 'in', user_ids],
+                ['create_date', '>=', start_date],
+                ['create_date', '<=', end_date]
+            ]]
+        )
+
+        response = json.loads(result)
+        if response.get('status') == 'success':
+            return response.get('result', 0)
+        else:
+            raise Exception(f"Search failed: {response.get('error', 'Unknown error')}")
+
+    except Exception as e:
+        raise Exception(f"Error getting RDV Dégustation activities count: {str(e)}")
 
 
 def check_field_exists(model: str, field_name: str) -> bool:
