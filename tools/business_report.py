@@ -62,13 +62,16 @@ def odoo_business_report(
         JSON string with the complete business report data
     """
     try:
+        print("[DEBUG] ===== STARTING BUSINESS REPORT GENERATION =====")
+
         # Validate input
         if not user_ids or not isinstance(user_ids, list):
             return json.dumps({
                 "status": "error",
                 "message": "user_ids must be a non-empty list"
             })
-        
+
+        print(f"[DEBUG] Step 1: Validating dates...")
         # Validate date format
         try:
             datetime.datetime.fromisoformat(start_date)
@@ -78,17 +81,19 @@ def odoo_business_report(
                 "status": "error",
                 "message": "Invalid date format. Use YYYY-MM-DD format."
             })
-        
+
         # Validate that start_date is before end_date
         if start_date >= end_date:
             return json.dumps({
-                "status": "error", 
+                "status": "error",
                 "message": "start_date must be before end_date"
             })
-        
+
+        print(f"[DEBUG] Step 2: Testing Odoo connection...")
         # Test Odoo connection first
         models, uid = get_odoo_connection()
-        
+
+        print(f"[DEBUG] Step 3: Verifying users...")
         # Verify ALL users exist and get their names
         user_names = []
         for user_id in user_ids:
@@ -105,16 +110,20 @@ def odoo_business_report(
                     "message": f"User with ID {user_id} not found"
                 })
             user_names.append(user_response['records'][0]['name'])
-        
+
         # Create combined user info
         combined_user_name = ", ".join(user_names)
-        
+        print(f"[DEBUG] Users verified: {combined_user_name}")
+
+        print(f"[DEBUG] Step 4: Collecting top clients data...")
         # Collect all report data (AGRÉGÉ pour tous les utilisateurs)
         top_clients_data = collect_top_clients_data(user_ids)
 
+        print(f"[DEBUG] Step 5: Collecting top5 client activities...")
         # Collecter les activités des Top 5 clients
         top5_activities = collect_top5_client_activities(start_date, end_date, top_clients_data)
 
+        print(f"[DEBUG] Step 6: Generating AI summaries for Top 5...")
         # Générer les résumés AI pour chaque Top 5
         top5_summaries = {}
         for top_key in ['top_1', 'top_2', 'top_3', 'top_4', 'top_5']:
@@ -125,6 +134,13 @@ def odoo_business_report(
             else:
                 top5_summaries[top_key] = "Aucun client"
 
+        print(f"[DEBUG] Step 7: Collecting revenue data...")
+        revenue_data = collect_revenue_data(start_date, end_date, user_ids)
+
+        print(f"[DEBUG] Step 8: Collecting metrics data...")
+        metrics_data = collect_metrics_data(start_date, end_date, user_ids)
+
+        print(f"[DEBUG] Step 9: Assembling report data...")
         report_data = {
             "user_info": {
                 "user_ids": user_ids,
@@ -133,14 +149,19 @@ def odoo_business_report(
                 "start_date": start_date,
                 "end_date": end_date
             },
-            "revenue_data": collect_revenue_data(start_date, end_date, user_ids),
-            "metrics_data": collect_metrics_data(start_date, end_date, user_ids),
+            "revenue_data": revenue_data,
+            "metrics_data": metrics_data,
             "top_clients_data": top_clients_data,
             "top5_summaries": top5_summaries  # NOUVEAU: résumés AI des Top 5
         }
 
+        print(f"[DEBUG] Step 10: Creating report task...")
         # Create task with formatted report
         task_id = create_report_task(report_data, project_id, task_column_id)
+        print(f"[DEBUG] Task created with ID: {task_id}")
+
+        print(f"[DEBUG] Step 11: Report completed successfully!")
+        print("[DEBUG] ===== END BUSINESS REPORT GENERATION =====\n")
 
         return json.dumps({
             "status": "success",
@@ -153,9 +174,14 @@ def odoo_business_report(
         }, indent=2)
 
     except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"[ERROR] Exception in odoo_business_report:")
+        print(f"[ERROR] {error_traceback}")
         return json.dumps({
             "status": "error",
-            "message": f"Error generating business report: {str(e)}"
+            "message": f"Error generating business report: {str(e)}",
+            "traceback": error_traceback
         })
 
 
