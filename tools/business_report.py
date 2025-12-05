@@ -542,11 +542,14 @@ def get_rdv_degustation_activities_count(start_date: str, end_date: str, user_id
         start_datetime = start_date if ' ' in start_date else f"{start_date} 00:00:00"
         end_datetime = end_date if ' ' in end_date else f"{end_date} 23:59:59"
 
+        # CORRIGÉ: Utiliser le format exact qui fonctionne manuellement avec opérateurs AND explicites
+        # Format: ["&", "&", "&", condition1, condition2, condition3, condition4]
         domain = [
-            ['activity_type_id', '=', 38],  # Type "RDV Dégustation"
-            ['create_uid', 'in', user_ids],  # CORRIGÉ: create_uid au lieu de user_id
-            ['create_date', '>=', start_datetime],
-            ['create_date', '<=', end_datetime]
+            "&", "&", "&",
+            ("create_uid", "in", user_ids),
+            ("create_date", ">=", start_datetime),
+            ("create_date", "<=", end_datetime),
+            ("activity_type_id", "in", [38])  # CORRIGÉ: "in" au lieu de "="
         ]
 
         # DEBUG: Log de la recherche
