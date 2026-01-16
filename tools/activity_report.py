@@ -42,25 +42,21 @@ def odoo_execute(*args, **kwargs):
 
 
 def generate_pdf_from_html(html_content: str) -> bytes:
-    """
-    Convert HTML to PDF using WeasyPrint.
-
-    Args:
-        html_content: HTML string to convert
-
-    Returns:
-        bytes: PDF content as bytes
-    """
     try:
         from weasyprint import HTML
+        import traceback
 
-        # Generate PDF in memory (no temporary file needed)
+        print("[DEBUG] Starting PDF generation...")
         pdf_bytes = HTML(string=html_content).write_pdf()
+        print(f"[DEBUG] PDF generated successfully, size: {len(pdf_bytes)} bytes")
 
         return pdf_bytes
 
     except Exception as e:
-        raise Exception(f"Error generating PDF from HTML: {str(e)}")
+        error_trace = traceback.format_exc()
+        print(f"[ERROR] PDF generation failed:")
+        print(error_trace)
+        raise Exception(f"Error generating PDF from HTML: {str(e)}\n{error_trace}")
 
 
 def attach_pdf_to_task_chatter(task_id: int, pdf_bytes: bytes, filename: str) -> int:
