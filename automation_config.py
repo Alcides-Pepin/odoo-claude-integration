@@ -37,6 +37,7 @@ ACTIVITY_REPORTS = [
     {"user_id": 205, "project_id": 53, "task_column_id": 280},  # Thomas Schrutt
     {"user_id": 23, "project_id": 18, "task_column_id": 109},   # Victor May
     {"user_id": 908, "project_id": 45, "task_column_id": 138},  # Vincent Bigioni
+    {"user_id": 921, "project_id": 254, "task_column_id": 1018},  # Jean Rougetet
 ]
 
 # Rapports business - pour les binômes commerciaux
@@ -54,6 +55,8 @@ BUSINESS_REPORTS = [
     {"user_ids": [22], "project_id": 35, "task_column_id": 240},   # Louise Quintrand
     {"user_ids": [207], "project_id": 40, "task_column_id": 203},  # Maxime Guedou
     {"user_ids": [908], "project_id": 45, "task_column_id": 138},  # Vincent Bigioni
+    {"user_ids": [921], "project_id": 254, "task_column_id": 1018},  # Jean Rougetet
     # À configurer selon tes binômes commerciaux
     # Exemple: {"user_ids": [9, 862], "project_id": 151, "task_column_id": 756},  # Cameron + Corentin
 ]
+
