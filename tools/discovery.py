@@ -106,7 +106,8 @@ def odoo_health_check() -> str:
                     count = models.execute_kw(
                         ODOO_DB, uid, ODOO_PASSWORD,
                         model, 'search_count',
-                        [[]]
+                        [[]],
+                        {}
                     )
                 except:
                     failed_models.append(model)
@@ -126,7 +127,8 @@ def odoo_health_check() -> str:
             models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD,
                 'res.partner', 'search_count',
-                [[]]
+                [[]],
+                {}
             )
             elapsed = time.time() - start
             if elapsed < 1:
@@ -228,7 +230,8 @@ def odoo_get_model_fields(model_name: str) -> str:
         model_exists = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             'ir.model', 'search_count',
-            [[('model', '=', model_name)]]
+            [[['model', '=', model_name]]],
+            {}
         )
         
         if not model_exists:
