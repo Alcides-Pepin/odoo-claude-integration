@@ -48,7 +48,7 @@ def odoo_search(
         JSON string with search results
     """
     try:
-        print(f"[🔥 FIX DEPLOYED f1a6119] odoo_search called with model={model}, domain={domain}")
+        print(f"[🔥 RESTORED d2c0a1d] odoo_search called with model={model}, domain={domain}")
 
         models, uid = get_odoo_connection()
 
@@ -57,16 +57,13 @@ def odoo_search(
             domain = []
         if limit > 100000:
             limit = 100000  # Cap at 100,000 for performance
-        
+
         # First, check if the model exists
-        print(f"[🔥 CHECK MODEL] Calling search_count on ir.model with domain=[['model', '=', '{model}']] + empty kwargs {{}}")
         model_exists = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             'ir.model', 'search_count',
-            [[['model', '=', model]]],
-            {}
+            [[('model', '=', model)]]
         )
-        print(f"[🔥 CHECK MODEL] Result: {model_exists}")
         
         if not model_exists:
             return json.dumps({
@@ -95,14 +92,11 @@ def odoo_search(
         )
         
         # Get total count for pagination info
-        print(f"[🔥 COUNT RECORDS] Calling search_count on {model} with domain={domain} (wrapped in list: [{domain}]) + empty kwargs {{}}")
         total_count = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             model, 'search_count',
-            [domain],
-            {}
+            [domain]
         )
-        print(f"[🔥 COUNT RECORDS] Result: {total_count}")
         
         result = {
             "status": "success",

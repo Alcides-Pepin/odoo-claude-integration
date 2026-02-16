@@ -94,10 +94,20 @@ def odoo_business_report(
         models, uid = get_odoo_connection()
 
         print(f"[DEBUG] Step 3: Verifying users...")
-        # Verify ALL users exist in one query
+        # Adapt domain based on number of users to avoid XML-RPC serialization issues
+        if len(user_ids) == 1:
+            # Single user: use '=' operator (avoids nested list in 'in' operator)
+            user_domain = [['id', '=', user_ids[0]]]
+            print(f"[DEBUG] Single user domain: {user_domain}")
+        else:
+            # Multiple users: use 'in' operator
+            user_domain = [['id', 'in', user_ids]]
+            print(f"[DEBUG] Multiple users domain: {user_domain}")
+
+        # Verify ALL users exist
         user_check = odoo_search(
             model='res.users',
-            domain=[['id', 'in', user_ids]],  # CHANGÉ: in au lieu de =
+            domain=user_domain,
             fields=['name'],
             limit=len(user_ids)
         )
