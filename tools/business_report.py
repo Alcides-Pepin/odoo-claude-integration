@@ -101,6 +101,7 @@ def odoo_business_report(
             fields=['name'],
             limit=len(user_ids)
         )
+        print(f"[DEBUG] user_check response: {user_check}")
         user_response = json.loads(user_check)
         if not (user_response.get('status') == 'success' and user_response.get('records')):
             return json.dumps({
