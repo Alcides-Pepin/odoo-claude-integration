@@ -94,22 +94,30 @@ def odoo_business_report(
         models, uid = get_odoo_connection()
 
         print(f"[DEBUG] Step 3: Verifying users...")
-        # Verify ALL users exist and get their names
+        # Verify ALL users exist in one query
+        user_check = odoo_search(
+            model='res.users',
+            domain=[['id', 'in', user_ids]],  # CHANGÉ: in au lieu de =
+            fields=['name'],
+            limit=len(user_ids)
+        )
+        user_response = json.loads(user_check)
+        if not (user_response.get('status') == 'success' and user_response.get('records')):
+            return json.dumps({
+                "status": "error",
+                "message": f"Users verification failed"
+            })
+
+        # Extraire les noms dans l'ordre des user_ids
+        found_users = {u['id']: u['name'] for u in user_response['records']}
         user_names = []
         for user_id in user_ids:
-            user_check = odoo_search(
-                model='res.users',
-                domain=[['id', '=', user_id]],
-                fields=['name'],
-                limit=1
-            )
-            user_response = json.loads(user_check)
-            if not (user_response.get('status') == 'success' and user_response.get('records')):
+            if user_id not in found_users:
                 return json.dumps({
                     "status": "error",
                     "message": f"User with ID {user_id} not found"
                 })
-            user_names.append(user_response['records'][0]['name'])
+            user_names.append(found_users[user_id])
 
         # Create combined user info
         combined_user_name = ", ".join(user_names)

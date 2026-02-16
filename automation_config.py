@@ -11,7 +11,7 @@ ACTIVITY_REPORTS = [
     {"user_id": 863, "project_id": 189, "task_column_id": 844},  # Alexandre Schmitt
     {"user_id": 16, "project_id": 79, "task_column_id": 116},   # Amandine Aubry
     {"user_id": 208, "project_id": 42, "task_column_id": 219},  # Antoine Hemmerlé
-    {"user_id": 701, "project_id": 181, "task_column_id": 789},  # Antonina Onishchenko
+    # {"user_id": 701, "project_id": 181, "task_column_id": 789},  # Antonina Onishchenko
     {"user_id": 17, "project_id": 45, "task_column_id": 138},   # Axel Aragoncillo
     {"user_id": 13, "project_id": 20, "task_column_id": 112},   # Axel Lemarinier
     # {"user_id": 784, "project_id": 151, "task_column_id": 726},  # Budoc Doan
@@ -26,8 +26,8 @@ ACTIVITY_REPORTS = [
     {"user_id": 215, "project_id": 59, "task_column_id": 315},  # Hubert Herphelin
     {"user_id": 302, "project_id": 135, "task_column_id": 653},  # Hugo Wahl
     {"user_id": 703, "project_id": 181, "task_column_id": 789},  # Inès Vedrenne
-    {"user_id": 218, "project_id": 79, "task_column_id": 116},  # Justine Clément
-    {"user_id": 695, "project_id": 25, "task_column_id": 126},  # Khalil Eddine Djerbi
+    # {"user_id": 218, "project_id": 79, "task_column_id": 116},  # Justine Clément
+    # {"user_id": 695, "project_id": 25, "task_column_id": 126},  # Khalil Eddine Djerbi
     # {"user_id": 709, "project_id": 40, "task_column_id": 203},  # Lancelot Minoggio
     {"user_id": 22, "project_id": 35, "task_column_id": 240},   # Louise Quintrand
     {"user_id": 843, "project_id": 95, "task_column_id": 502},  # Marie Bedin
@@ -43,10 +43,11 @@ ACTIVITY_REPORTS = [
 # Rapports business - pour les binômes commerciaux
 # Format: liste d'user_ids par équipe
 BUSINESS_REPORTS = [
-    {"user_ids": [9, 695], "project_id": 25, "task_column_id": 126}, # Cameron x Khalil 
-    {"user_ids": [909, 747], "project_id": 211, "task_column_id": 942}, # Darius x Adrien 
-    {"user_ids": [218, 16], "project_id": 79, "task_column_id": 116}, # Justine x Amandine 
-    {"user_ids": [23, 16], "project_id": 18, "task_column_id": 109}, # Victor x Amandine 
+    # {"user_ids": [9, 695], "project_id": 25, "task_column_id": 126}, # Cameron x Khalil
+    {"user_ids": [9], "project_id": 25, "task_column_id": 126},  # Cameron
+    {"user_ids": [909, 747], "project_id": 211, "task_column_id": 942},  # Darius x Adrien 
+    # {"user_ids": [218, 16], "project_id": 79, "task_column_id": 116}, # Justine x Amandine 
+    {"user_ids": [23, 16], "project_id": 18, "task_column_id": 109},  # Victor x Amandine 
     {"user_ids": [863], "project_id": 189, "task_column_id": 844},  # Alexandre Schmitt
     {"user_ids": [862], "project_id": 190, "task_column_id": 848},  # Corentin Dumont
     {"user_ids": [17], "project_id": 45, "task_column_id": 138},   # Axel Aragoncillo
@@ -59,4 +60,3 @@ BUSINESS_REPORTS = [
     # À configurer selon tes binômes commerciaux
     # Exemple: {"user_ids": [9, 862], "project_id": 151, "task_column_id": 756},  # Cameron + Corentin
 ]
-
