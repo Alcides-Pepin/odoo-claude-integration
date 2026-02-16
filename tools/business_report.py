@@ -94,41 +94,22 @@ def odoo_business_report(
         models, uid = get_odoo_connection()
 
         print(f"[DEBUG] Step 3: Verifying users...")
-        # Adapt domain based on number of users to avoid XML-RPC serialization issues
-        if len(user_ids) == 1:
-            # Single user: use '=' operator (avoids nested list in 'in' operator)
-            user_domain = [['id', '=', user_ids[0]]]
-            print(f"[DEBUG] Single user domain: {user_domain}")
-        else:
-            # Multiple users: use 'in' operator
-            user_domain = [['id', 'in', user_ids]]
-            print(f"[DEBUG] Multiple users domain: {user_domain}")
-
-        # Verify ALL users exist
-        user_check = odoo_search(
-            model='res.users',
-            domain=user_domain,
-            fields=['name'],
-            limit=len(user_ids)
-        )
-        print(f"[DEBUG] user_check response: {user_check}")
-        user_response = json.loads(user_check)
-        if not (user_response.get('status') == 'success' and user_response.get('records')):
-            return json.dumps({
-                "status": "error",
-                "message": f"Users verification failed"
-            })
-
-        # Extraire les noms dans l'ordre des user_ids
-        found_users = {u['id']: u['name'] for u in user_response['records']}
+        # Verify ALL users exist and get their names
         user_names = []
         for user_id in user_ids:
-            if user_id not in found_users:
+            user_check = odoo_search(
+                model='res.users',
+                domain=[['id', '=', user_id]],
+                fields=['name'],
+                limit=1
+            )
+            user_response = json.loads(user_check)
+            if not (user_response.get('status') == 'success' and user_response.get('records')):
                 return json.dumps({
                     "status": "error",
                     "message": f"User with ID {user_id} not found"
                 })
-            user_names.append(found_users[user_id])
+            user_names.append(user_response['records'][0]['name'])
 
         # Create combined user info
         combined_user_name = ", ".join(user_names)
