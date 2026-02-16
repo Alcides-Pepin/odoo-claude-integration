@@ -60,7 +60,7 @@ def odoo_search(
         model_exists = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             'ir.model', 'search_count',
-            [[('model', '=', model)]]
+            [[['model', '=', model]]]
         )
         
         if not model_exists:
